@@ -10,7 +10,7 @@ const getAllowedOrigins = (): string[] => {
   
   if (!originsEnv) {
     // Default to localhost if not specified
-    return ["http://localhost:3000"];
+    return ["http://localhost:4001"];
   }
 
   // Split by comma and trim whitespace
