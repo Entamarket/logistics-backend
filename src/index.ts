@@ -19,7 +19,7 @@ setupRoutes(app);
 const PORT = process.env.PORT || 4000;
 
 // Connect to database and start server
-logger.info(`Server port: ${PORT}`);
+
 const startServer = async () => {
   try {
     await connectDatabase();

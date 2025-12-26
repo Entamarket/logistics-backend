@@ -9,6 +9,7 @@ export const connectDatabase = async (): Promise<void> => {
   try {
     // Get MongoDB connection URI from environment variables
     const mongoUri = process.env.DB_URI;
+    logger.info(`MongoDB connection URI: ${mongoUri}`);
 
     if (!mongoUri) {
       throw new Error(
