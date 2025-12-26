@@ -1,3 +1,5 @@
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
 import mongoose from "mongoose";
 import { logger } from "../shared/lib/logger";
 
@@ -21,6 +23,7 @@ export const connectDatabase = async (): Promise<void> => {
     const options: mongoose.ConnectOptions = {
       // These options help with connection stability
       dbName: process.env.DB_NAME,
+      family: 4,
       // maxPoolSize: 10, // Maintain up to 10 socket connections
       // serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
       // socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
