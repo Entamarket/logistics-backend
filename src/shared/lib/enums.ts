@@ -6,3 +6,44 @@ export enum EmailVerificationPurpose {
   PASSWORD_RESET = "Password reset",
 }
 
+/**
+ * Shipment lifecycle status
+ */
+export enum ShipmentStatus {
+  PENDING = "pending",
+  SCHEDULED = "scheduled",
+  SEARCHING_RIDER = "searching_rider",
+  RIDER_ASSIGNED = "rider_assigned",
+  PICKED_UP = "picked_up",
+  IN_TRANSIT = "in_transit",
+  DELIVERED = "delivered",
+  CANCELLED = "cancelled",
+}
+
+/**
+ * Delivery timing type
+ */
+export enum DeliveryType {
+  INSTANT = "instant",
+  SCHEDULED = "scheduled",
+}
+
+/**
+ * Payment status for a shipment
+ */
+export enum PaymentStatus {
+  PENDING = "pending",
+  PAID = "paid",
+  FAILED = "failed",
+}
+
+/**
+ * Rider account status
+ */
+export enum RiderStatus {
+  PENDING = "pending",
+  ACTIVE = "active",
+  SUSPENDED = "suspended",
+  BLOCKED = "blocked",
+}
+

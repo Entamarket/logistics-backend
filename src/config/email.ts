@@ -31,6 +31,10 @@ export const sendEmail = async (
   html: string,
   text?: string
 ): Promise<void> => {
+  if (!process.env.MAIL_HOST || !process.env.MAIL_USER) {
+    logger.warn("Mail not configured (MAIL_HOST or MAIL_USER missing), skipping send", { to, subject });
+    return;
+  }
   try {
     const transporter = createTransporter();
 
@@ -162,6 +166,61 @@ export const sendPasswordResetOTPEmail = async (
     
     If you didn't request a password reset, please ignore this email. Your password will remain unchanged.
     
+    © ${new Date().getFullYear()} Entamarket Logistics. All rights reserved.
+  `;
+
+  await sendEmail(email, subject, html, text);
+};
+
+/**
+ * Send rider account credentials (email + password) when admin creates a rider
+ * @param email - Rider's email address
+ * @param firstName - Rider's first name for personalization
+ * @param plainPassword - The password set by admin (sent so rider can log in)
+ */
+export const sendRiderCredentialsEmail = async (
+  email: string,
+  firstName: string,
+  plainPassword: string
+): Promise<void> => {
+  const subject = "Your rider account – Entamarket Logistics";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Rider Account</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px;">
+        <h2 style="color: #333; text-align: center;">Your rider account has been created</h2>
+        <p>Hello ${firstName},</p>
+        <p>An administrator has created a rider account for you on Entamarket Logistics. You can log in using the details below.</p>
+        <div style="background-color: #fff; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <p style="margin: 0 0 8px 0;"><strong>Email:</strong> ${email}</p>
+          <p style="margin: 0;"><strong>Password:</strong> ${plainPassword}</p>
+        </div>
+        <p>Please keep these details secure. You can use them to log in to the rider portal.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="font-size: 12px; color: #666; text-align: center;">
+          © ${new Date().getFullYear()} Entamarket Logistics. All rights reserved.
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `
+    Hello ${firstName},
+
+    An administrator has created a rider account for you on Entamarket Logistics. You can log in using the details below.
+
+    Email: ${email}
+    Password: ${plainPassword}
+
+    Please keep these details secure. You can use them to log in to the rider portal.
+
     © ${new Date().getFullYear()} Entamarket Logistics. All rights reserved.
   `;
 

@@ -44,7 +44,7 @@ const userSchema = new Schema<IUser>(
     },
     role: {
       type: String,
-      enum: ["client", "admin"],
+      enum: ["client", "admin", "rider"],
       default: "client",
     },
     isEmailVerified: {
