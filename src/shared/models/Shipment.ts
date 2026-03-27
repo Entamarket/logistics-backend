@@ -32,6 +32,13 @@ export interface IShipment extends Document {
   deliveryType: string;
   pickupWindowStart?: Date;
   pickupWindowEnd?: Date;
+  /** Pickup point (WGS84) for rider matching / reassignment. */
+  pickupLongitude?: number;
+  pickupLatitude?: number;
+  /** When the current rider must accept; after this, offer moves to another rider. */
+  riderResponseDeadline?: Date;
+  /** Riders who already declined or timed out on this shipment (exclude from next match). */
+  declinedRiderIds?: Types.ObjectId[];
   riderID: Types.ObjectId | null;
   price: number;
   paymentStatus: string;
@@ -99,6 +106,13 @@ const shipmentSchema = new Schema<IShipment>(
     },
     pickupWindowStart: { type: Date },
     pickupWindowEnd: { type: Date },
+    pickupLongitude: { type: Number },
+    pickupLatitude: { type: Number },
+    riderResponseDeadline: { type: Date },
+    declinedRiderIds: {
+      type: [{ type: Schema.Types.ObjectId, ref: "Rider" }],
+      default: [],
+    },
     riderID: {
       type: Schema.Types.ObjectId,
       ref: "Rider",

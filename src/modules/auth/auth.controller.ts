@@ -102,6 +102,7 @@ export class AuthController {
       if (error.message === "EMAIL_NOT_VERIFIED") {
         res.status(403).json({
           success: false,
+          code: "EMAIL_NOT_VERIFIED",
           message: "Email not verified. An OTP has been sent to your email. Please verify your email to continue.",
         });
         return;
@@ -322,5 +323,19 @@ export class AuthController {
     }
   }
 
+  /**
+   * Returns the JWT from the httpOnly cookie so the client can open a WebSocket with ?token=
+   */
+  getWsToken(req: Request, res: Response): void {
+    const token = req.cookies?.token as string | undefined;
+    if (!token) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+    res.status(200).json({
+      success: true,
+      data: { token },
+    });
+  }
 }
 

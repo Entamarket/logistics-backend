@@ -1,0 +1,256 @@
+# Logistics API reference
+
+Base URL defaults to `http://localhost:4000` (see `PORT` in `.env`). All JSON APIs expect `Content-Type: application/json` where a body is used.
+
+## Authentication
+
+- After **login**, the API sets an **httpOnly** cookie named `token` (JWT). Browsers send it automatically on same-site requests.
+- For tools like **Postman** or **curl**, capture the `Set-Cookie` from login and send `Cookie: token=<jwt>` on protected routes.
+- **GET** `/api/auth/ws-token` (authenticated) returns `{ "data": { "token": "<jwt>" } }` for native WebSocket clients that cannot use cookies; connect with query `?token=<jwt>`.
+
+### Roles
+
+- **client** (default for signup): shipments list/create; notifications.
+- **rider**: `/api/riders/me`, `/api/riders/me/location`, `/api/shipments/rider/me`, accept/reject/delivered on assigned shipments.
+- **admin**: after `/api/riders/me` and `/api/riders/me/location`, routes under `/api/riders` except those two require `role: admin`.
+
+---
+
+## Root
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/` | No | Health text: server running message |
+
+---
+
+## Auth — `/api/auth`
+
+| Method | Path | Auth | Body | Notes |
+|--------|------|------|------|-------|
+| POST | `/signup` | No | See below | Creates user (client role). |
+| POST | `/login` | No | `{ "email", "password" }` | Sets `token` cookie. |
+| POST | `/verify-email` | No | `{ "email", "otp" }` | |
+| POST | `/forgot-password` | No | `{ "email" }` | Always 200 message (no user enumeration). |
+| POST | `/reset-password` | No | `{ "email", "otp", "newPassword" }` | `newPassword` min 8 chars. |
+| POST | `/logout` | No | (none) | Clears `token` cookie. |
+| POST | `/resend-otp` | No | `{ "email", "purpose" }` | `purpose` must be exactly `"Email verification"` or `"Password reset"`. |
+| GET | `/ws-token` | Yes (cookie) | — | Returns JWT in JSON for WebSocket. |
+
+### POST `/api/auth/signup` body
+
+```json
+{
+  "firstName": "string",
+  "lastName": "string",
+  "email": "string",
+  "phone": "string",
+  "password": "string"
+}
+```
+
+### Typical success envelope
+
+```json
+{ "success": true, "message": "string", "data": { } }
+```
+
+### Login success `data`
+
+`id`, `firstName`, `lastName`, `email`, `role`
+
+### Login errors
+
+- `403` with `code: "EMAIL_NOT_VERIFIED"` when email not verified.
+
+---
+
+## Shipments — `/api/shipments`
+
+All routes require auth (cookie or equivalent).
+
+| Method | Path | Who | Query / params | Body |
+|--------|------|-----|----------------|------|
+| POST | `/` | Authenticated user | — | Create shipment (below) |
+| GET | `/` | Authenticated user | — | List shipments for current user |
+| GET | `/rider/me` | **rider** | `scope` optional | — |
+| PATCH | `/:id/rider/accept` | **rider** (assigned offer) | `id` = shipment Mongo id | — |
+| PATCH | `/:id/rider/reject` | **rider** (assigned offer) | `id` | — |
+| PATCH | `/:id/delivered` | **rider** (on that shipment) | `id` | — |
+
+### Query: GET `/api/shipments/rider/me`
+
+- `scope` (optional, string): `active` (default), `history`, or `all`.
+
+### POST `/api/shipments` body
+
+```json
+{
+  "deliveryType": "instant | scheduled",
+  "senderDetails": {
+    "fullName": "string",
+    "address": "string",
+    "phone": "string"
+  },
+  "recipientDetails": {
+    "fullName": "string",
+    "address": "string",
+    "phone": "string"
+  },
+  "packageDetails": {
+    "type": "string",
+    "weight": 0,
+    "dimensions": 0,
+    "quantity": 1,
+    "note": "optional string"
+  },
+  "pickupWindowStart": "ISO date (optional, for scheduled)",
+  "pickupWindowEnd": "ISO date (optional, for scheduled)",
+  "pickupLongitude": -180,
+  "pickupLatitude": -90
+}
+```
+
+- `senderDetails`, `recipientDetails`, `packageDetails` are **required**.
+- `deliveryType` must be `instant` or `scheduled`.
+- `pickupLongitude` / `pickupLatitude` are optional numbers (WGS84); used for rider matching / reassignment.
+- For **scheduled**, `pickupWindowStart` and `pickupWindowEnd` may be supplied together.
+
+### Shipment document (response shape, high level)
+
+Matches [Shipment model](src/shared/models/Shipment.ts): `userId`, `status`, `deliveryType`, optional pickup window and `pickupLongitude`/`pickupLatitude`, `riderResponseDeadline`, `declinedRiderIds`, `riderID`, `price`, `paymentStatus`, `timeline[]`, nested `senderDetails`, `recipientDetails`, `packageDetails`, timestamps.
+
+**Status values** (enum): `pending`, `scheduled`, `searching_rider`, `awaiting_rider_response`, `rider_assigned`, `picked_up`, `in_transit`, `delivered`, `cancelled`.
+
+### Errors (shipments)
+
+- `401` if not logged in.
+- `403` for rider-only endpoints when role is not rider.
+- `404` rider profile not found (rider list).
+- Accept/reject/deliver: `400`/`403`/`404` depending on state and authorization.
+
+---
+
+## Riders — `/api/riders`
+
+Global `authMiddleware` on all routes.
+
+| Method | Path | Auth | Body |
+|--------|------|------|------|
+| GET | `/me` | **rider** | — |
+| PATCH | `/me/location` | **rider** | `{ "longitude", "latitude" }` (numbers or numeric strings) |
+| POST | `/` | **admin** | Create rider (below) |
+| GET | `/` | **admin** | — |
+| GET | `/:id` | **admin** | — |
+| PATCH | `/:id` | **admin** | Partial update (below) |
+| PATCH | `/:id/status` | **admin** | `{ "status": "active" | "suspended" | "blocked" }` |
+
+### POST `/api/riders` (admin) body
+
+```json
+{
+  "firstName": "string",
+  "lastName": "string",
+  "email": "string",
+  "phone": "string",
+  "password": "string"
+}
+```
+
+`password` minimum 8 characters. Creates `User` with `role: rider` and linked `Rider` profile.
+
+### PATCH `/api/riders/:id` (admin) body
+
+All optional; send only fields to change:
+
+```json
+{
+  "status": "pending | active | suspended | blocked",
+  "isAvailable": true,
+  "isVerified": true,
+  "firstName": "string",
+  "lastName": "string",
+  "phone": "string",
+  "email": "string"
+}
+```
+
+(Underlying user updates apply for name/phone/email where implemented in service.)
+
+### Rider resource
+
+[Rider model](src/shared/models/Rider.ts): `userId`, `status`, `isAvailable`, `isVerified`, optional GeoJSON `location`: `{ "type": "Point", "coordinates": [lng, lat] }`, timestamps. List/detail may `populate` `userId` with `firstName`, `lastName`, `email`, `phone`.
+
+### PATCH `/api/riders/me/location` validation
+
+- Longitude \([-180, 180]\), latitude \([-90, 90]\).
+
+### Errors
+
+- `403` `Admin access required` for admin-only routes.
+- `403` `Rider access required` for `/me` and `/me/location`.
+- `404` rider or rider profile not found where applicable.
+
+---
+
+## Notifications — `/api/notifications`
+
+All routes require auth.
+
+| Method | Path | Query / body | Description |
+|--------|------|--------------|-------------|
+| GET | `/` | `limit` optional (default 50, max 100) | Newest first |
+| GET | `/unread-count` | — | `{ "data": { "count": number } }` |
+| PATCH | `/:id/read` | — | Mark one notification read |
+| POST | `/mark-all-read` | — | `{ "data": { "modified": number } }` |
+
+### Notification document
+
+`userId`, `type`, `title`, `message`, `read`, optional `relatedShipmentId`, timestamps.
+
+**Types**: `shipment_assigned`, `rider_accepted_shipment`, `delivery_complete`.
+
+---
+
+## WebSocket (not REST)
+
+- **URL**: `ws://<host>:<port>/ws?token=<jwt>`
+- Obtain JWT via **GET** `/api/auth/ws-token` while logged in, or reuse a valid JWT.
+- On connect, server may send: `{ "event": "connected" }`.
+- Server pushes JSON strings for events such as new notifications (`broadcastToUser`); shape depends on server implementation (typically notification-related payloads).
+
+---
+
+## Quick reference — all REST paths
+
+```
+GET    /
+POST   /api/auth/signup
+POST   /api/auth/login
+POST   /api/auth/verify-email
+POST   /api/auth/forgot-password
+POST   /api/auth/reset-password
+POST   /api/auth/logout
+POST   /api/auth/resend-otp
+GET    /api/auth/ws-token
+
+POST   /api/shipments
+GET    /api/shipments
+GET    /api/shipments/rider/me
+PATCH  /api/shipments/:id/rider/accept
+PATCH  /api/shipments/:id/rider/reject
+PATCH  /api/shipments/:id/delivered
+
+GET    /api/riders/me
+PATCH  /api/riders/me/location
+POST   /api/riders
+GET    /api/riders
+GET    /api/riders/:id
+PATCH  /api/riders/:id
+PATCH  /api/riders/:id/status
+
+GET    /api/notifications
+GET    /api/notifications/unread-count
+PATCH  /api/notifications/:id/read
+POST   /api/notifications/mark-all-read
+```

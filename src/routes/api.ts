@@ -2,6 +2,7 @@ import { Express } from "express";
 import authRoutes from "../modules/auth/auth.route";
 import shipmentRoutes from "../modules/shipment/shipment.route";
 import riderRoutes from "../modules/rider/rider.route";
+import notificationRoutes from "../modules/notification/notification.route";
 
 export const setupRoutes = (app: Express): void => {
   // Root route
@@ -17,4 +18,6 @@ export const setupRoutes = (app: Express): void => {
 
   // Rider routes (admin only)
   app.use("/api/riders", riderRoutes);
+
+  app.use("/api/notifications", notificationRoutes);
 };

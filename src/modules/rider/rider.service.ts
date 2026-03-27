@@ -1,9 +1,13 @@
 import bcrypt from "bcrypt";
-import { Rider, IRider } from "../../shared/models/Rider";
+import { Types } from "mongoose";
+import { Rider, IRider, IRiderLocation } from "../../shared/models/Rider";
 import { User } from "../../shared/models/User";
 import { RiderStatus } from "../../shared/lib/enums";
 import { sendRiderCredentialsEmail } from "../../config/email";
 import { logger } from "../../shared/lib/logger";
+
+const NEAR_METERS_PRIMARY = 5000;
+const NEAR_METERS_FALLBACK = 10000;
 
 export interface CreateRiderBody {
   firstName: string;
@@ -97,5 +101,83 @@ export class RiderService {
     )
       .populate("userId", "firstName lastName email phone")
       .exec();
+  }
+
+  /**
+   * Atomically claims the nearest available rider within maxDistanceMeters (MongoDB returns candidates sorted by distance).
+   */
+  private async tryClaimNearestInRadius(
+    longitude: number,
+    latitude: number,
+    maxDistanceMeters: number,
+    excludeRiderIds: Types.ObjectId[]
+  ): Promise<IRider | null> {
+    const geoFilter: Record<string, unknown> = {
+      status: RiderStatus.ACTIVE,
+      isVerified: true,
+      isAvailable: true,
+      location: {
+        $nearSphere: {
+          $geometry: {
+            type: "Point",
+            coordinates: [longitude, latitude],
+          },
+          $maxDistance: maxDistanceMeters,
+        },
+      },
+    };
+    if (excludeRiderIds.length > 0) {
+      geoFilter._id = { $nin: excludeRiderIds };
+    }
+    const candidates = await Rider.find(geoFilter).limit(10).exec();
+
+    for (const candidate of candidates) {
+      const claimed = await Rider.findOneAndUpdate(
+        { _id: candidate._id, isAvailable: true },
+        { $set: { isAvailable: false } },
+        { new: true }
+      ).exec();
+      if (claimed) return claimed;
+    }
+    return null;
+  }
+
+  /**
+   * Finds nearest active/verified/available rider with a GeoJSON location; tries 5 km then 10 km.
+   * Sets isAvailable to false on the claimed rider.
+   * @param excludeRiderIds riders to skip (e.g. already declined this shipment)
+   */
+  async claimNearestAvailableRider(
+    longitude: number,
+    latitude: number,
+    excludeRiderIds: Types.ObjectId[] = []
+  ): Promise<IRider | null> {
+    let rider = await this.tryClaimNearestInRadius(longitude, latitude, NEAR_METERS_PRIMARY, excludeRiderIds);
+    if (!rider) {
+      rider = await this.tryClaimNearestInRadius(longitude, latitude, NEAR_METERS_FALLBACK, excludeRiderIds);
+    }
+    return rider;
+  }
+
+  async updateLocationByUserId(userId: string, longitude: number, latitude: number): Promise<IRider | null> {
+    const location: IRiderLocation = {
+      type: "Point",
+      coordinates: [longitude, latitude],
+    };
+    return Rider.findOneAndUpdate(
+      { userId },
+      { $set: { location } },
+      { new: true, runValidators: true }
+    )
+      .populate("userId", "firstName lastName email phone")
+      .exec();
+  }
+
+  async findByUserId(userId: string): Promise<IRider | null> {
+    return Rider.findOne({ userId }).populate("userId", "firstName lastName email phone").exec();
+  }
+
+  async setRiderAvailable(riderId: string, available: boolean): Promise<void> {
+    await Rider.findByIdAndUpdate(riderId, { $set: { isAvailable: available } }, { runValidators: true }).exec();
   }
 }

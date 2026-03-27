@@ -7,6 +7,10 @@ const router = Router();
 const riderController = new RiderController();
 
 router.use(authMiddleware);
+
+router.get("/me", (req, res) => riderController.getMe(req as AuthRequest, res));
+router.patch("/me/location", (req, res) => riderController.updateMyLocation(req as AuthRequest, res));
+
 router.use(adminMiddleware);
 
 router.post("/", (req, res) => riderController.create(req as AuthRequest, res));

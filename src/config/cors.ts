@@ -9,8 +9,7 @@ const getAllowedOrigins = (): string[] => {
   const originsEnv = process.env.CORS_ORIGINS;
   
   if (!originsEnv) {
-    // Default to localhost if not specified
-    return ["http://localhost:4001"];
+    return ["http://localhost:3000", "http://localhost:4001"];
   }
 
   // Split by comma and trim whitespace
