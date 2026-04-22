@@ -2,9 +2,11 @@ import bcrypt from "bcrypt";
 import { Types } from "mongoose";
 import { Rider, IRider, IRiderLocation } from "../../shared/models/Rider";
 import { User } from "../../shared/models/User";
-import { RiderStatus } from "../../shared/lib/enums";
+import { Shipment } from "../../shared/models/Shipment";
+import { RiderStatus, ShipmentStatus } from "../../shared/lib/enums";
 import { sendRiderCredentialsEmail } from "../../config/email";
 import { logger } from "../../shared/lib/logger";
+import { broadcastToUser } from "../../realtime/wsHub";
 
 const NEAR_METERS_PRIMARY = 5000;
 const NEAR_METERS_FALLBACK = 10000;
@@ -164,13 +166,46 @@ export class RiderService {
       type: "Point",
       coordinates: [longitude, latitude],
     };
-    return Rider.findOneAndUpdate(
+    const updated = await Rider.findOneAndUpdate(
       { userId },
       { $set: { location } },
       { new: true, runValidators: true }
     )
       .populate("userId", "firstName lastName email phone")
       .exec();
+
+    if (updated?._id) {
+      const riderMongoId = updated._id as Types.ObjectId;
+      const trackingStatuses = [
+        ShipmentStatus.AWAITING_RIDER_RESPONSE,
+        ShipmentStatus.RIDER_ASSIGNED,
+        ShipmentStatus.PICKED_UP,
+        ShipmentStatus.IN_TRANSIT,
+      ];
+      try {
+        const rows = await Shipment.find({
+          riderID: riderMongoId,
+          status: { $in: trackingStatuses },
+        })
+          .select("userId")
+          .lean()
+          .exec();
+        for (const row of rows) {
+          broadcastToUser(String(row.userId), {
+            event: "rider_location",
+            shipmentId: String(row._id),
+            longitude,
+            latitude,
+          });
+        }
+      } catch (e) {
+        logger.warn("Failed to broadcast rider location to shipment owners", {
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    return updated;
   }
 
   async findByUserId(userId: string): Promise<IRider | null> {

@@ -133,7 +133,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"deliveryType\": \"instant\",\n  \"senderDetails\": {\n    \"fullName\": \"Sender Name\",\n    \"address\": \"123 Pickup St\",\n    \"phone\": \"+2348000000001\"\n  },\n  \"recipientDetails\": {\n    \"fullName\": \"Recipient Name\",\n    \"address\": \"456 Dropoff Ave\",\n    \"phone\": \"+2348000000002\"\n  },\n  \"packageDetails\": {\n    \"type\": \"parcel\",\n    \"weight\": 2.5,\n    \"dimensions\": 30,\n    \"quantity\": 1,\n    \"note\": \"Fragile\"\n  },\n  \"pickupLongitude\": 3.3792,\n  \"pickupLatitude\": 6.5244\n}"
+              "raw": "{\n  \"deliveryType\": \"instant\",\n  \"senderDetails\": {\n    \"fullName\": \"Sender Name\",\n    \"address\": \"123 Pickup St\",\n    \"phone\": \"+2348000000001\"\n  },\n  \"recipientDetails\": {\n    \"fullName\": \"Recipient Name\",\n    \"address\": \"456 Dropoff Ave\",\n    \"phone\": \"+2348000000002\"\n  },\n  \"packageDetails\": {\n    \"type\": \"parcel\",\n    \"weight\": 2.5,\n    \"dimensions\": 30,\n    \"quantity\": 1,\n    \"note\": \"Fragile\"\n  },\n  \"pickupLongitude\": 3.3792,\n  \"pickupLatitude\": 6.5244,\n  \"recipientLongitude\": 3.39,\n  \"recipientLatitude\": 6.53\n}"
             },
             "url": "{{baseUrl}}/api/shipments",
             "description": "deliveryType: instant | scheduled"
@@ -154,6 +154,31 @@
             "header": [],
             "url": "{{baseUrl}}/api/shipments/rider/me?scope=active",
             "description": "Rider only. scope: active | history | all"
+          }
+        },
+        {
+          "name": "GET /:id/tracking",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/shipments/{{shipmentId}}/tracking",
+            "description": "Shipment owner only. Live pickup, recipient, rider coordinates."
+          }
+        },
+        {
+          "name": "PATCH /:id/picked-up",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/api/shipments/{{shipmentId}}/picked-up"
+          }
+        },
+        {
+          "name": "PATCH /:id/in-transit",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": "{{baseUrl}}/api/shipments/{{shipmentId}}/in-transit"
           }
         },
         {

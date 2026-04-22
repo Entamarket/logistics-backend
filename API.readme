@@ -11,7 +11,7 @@ Base URL defaults to `http://localhost:4000` (see `PORT` in `.env`). All JSON AP
 ### Roles
 
 - **client** (default for signup): shipments list/create; notifications.
-- **rider**: `/api/riders/me`, `/api/riders/me/location`, `/api/shipments/rider/me`, accept/reject/delivered on assigned shipments.
+- **rider**: `/api/riders/me`, `/api/riders/me/location`, `/api/shipments/rider/me`, accept/reject, picked-up, in-transit, delivered on assigned shipments.
 - **admin**: after `/api/riders/me` and `/api/riders/me/location`, routes under `/api/riders` except those two require `role: admin`.
 
 ---
@@ -74,6 +74,9 @@ All routes require auth (cookie or equivalent).
 | POST | `/` | Authenticated user | — | Create shipment (below) |
 | GET | `/` | Authenticated user | — | List shipments for current user |
 | GET | `/rider/me` | **rider** | `scope` optional | — |
+| GET | `/:id/tracking` | **shipment owner** (`userId`) | `id` | — |
+| PATCH | `/:id/picked-up` | **rider** (assigned to shipment) | `id` | — |
+| PATCH | `/:id/in-transit` | **rider** (assigned) | `id` | — |
 | PATCH | `/:id/rider/accept` | **rider** (assigned offer) | `id` = shipment Mongo id | — |
 | PATCH | `/:id/rider/reject` | **rider** (assigned offer) | `id` | — |
 | PATCH | `/:id/delivered` | **rider** (on that shipment) | `id` | — |
@@ -107,18 +110,39 @@ All routes require auth (cookie or equivalent).
   "pickupWindowStart": "ISO date (optional, for scheduled)",
   "pickupWindowEnd": "ISO date (optional, for scheduled)",
   "pickupLongitude": -180,
-  "pickupLatitude": -90
+  "pickupLatitude": -90,
+  "recipientLongitude": -180,
+  "recipientLatitude": -90
 }
 ```
 
 - `senderDetails`, `recipientDetails`, `packageDetails` are **required**.
 - `deliveryType` must be `instant` or `scheduled`.
-- `pickupLongitude` / `pickupLatitude` are optional numbers (WGS84); used for rider matching / reassignment.
+- `pickupLongitude` / `pickupLatitude` are optional numbers (WGS84); used for rider matching / reassignment; **required** for instant create (validated in service).
+- `recipientLongitude` / `recipientLatitude` are optional; supply **both** or **neither** (maps / drop-off routing).
 - For **scheduled**, `pickupWindowStart` and `pickupWindowEnd` may be supplied together.
+
+### GET `/api/shipments/:id/tracking` (owner only)
+
+Returns `{ success, data }` where `data` includes:
+
+- `shipmentId`, `status`
+- `pickup`: `{ longitude, latitude } | null`
+- `recipient`: `{ longitude, latitude } | null`
+- `rider`: `{ longitude, latitude } | null` (assigned rider’s last known position)
+- `riderLocationUpdatedAt`: ISO string or `null`
+
+### PATCH `/api/shipments/:id/picked-up` (rider)
+
+From `rider_assigned` → `picked_up`. Only the assigned rider.
+
+### PATCH `/api/shipments/:id/in-transit` (rider)
+
+From `picked_up` → `in_transit`. Only the assigned rider.
 
 ### Shipment document (response shape, high level)
 
-Matches [Shipment model](src/shared/models/Shipment.ts): `userId`, `status`, `deliveryType`, optional pickup window and `pickupLongitude`/`pickupLatitude`, `riderResponseDeadline`, `declinedRiderIds`, `riderID`, `price`, `paymentStatus`, `timeline[]`, nested `senderDetails`, `recipientDetails`, `packageDetails`, timestamps.
+Matches [Shipment model](src/shared/models/Shipment.ts): `userId`, `status`, `deliveryType`, optional pickup window and `pickupLongitude`/`pickupLatitude`, optional `recipientLongitude`/`recipientLatitude`, `riderResponseDeadline`, `declinedRiderIds`, `riderID`, `price`, `paymentStatus`, `timeline[]`, nested `senderDetails`, `recipientDetails`, `packageDetails`, timestamps.
 
 **Status values** (enum): `pending`, `scheduled`, `searching_rider`, `awaiting_rider_response`, `rider_assigned`, `picked_up`, `in_transit`, `delivered`, `cancelled`.
 
@@ -217,7 +241,9 @@ All routes require auth.
 - **URL**: `ws://<host>:<port>/ws?token=<jwt>`
 - Obtain JWT via **GET** `/api/auth/ws-token` while logged in, or reuse a valid JWT.
 - On connect, server may send: `{ "event": "connected" }`.
-- Server pushes JSON strings for events such as new notifications (`broadcastToUser`); shape depends on server implementation (typically notification-related payloads).
+- Server pushes JSON strings for events such as new notifications (`broadcastToUser`).
+- **Rider location** (to the shipment **owner** only): when a rider updates `PATCH /api/riders/me/location`, owners of active shipments assigned to that rider may receive:
+  `{ "event": "rider_location", "shipmentId": "<id>", "longitude": number, "latitude": number }`.
 
 ---
 
@@ -237,6 +263,9 @@ GET    /api/auth/ws-token
 POST   /api/shipments
 GET    /api/shipments
 GET    /api/shipments/rider/me
+GET    /api/shipments/:id/tracking
+PATCH  /api/shipments/:id/picked-up
+PATCH  /api/shipments/:id/in-transit
 PATCH  /api/shipments/:id/rider/accept
 PATCH  /api/shipments/:id/rider/reject
 PATCH  /api/shipments/:id/delivered

@@ -17,6 +17,18 @@ router.get("/rider/me", authMiddleware, (req, res) =>
   shipmentController.getShipmentsForRider(req as AuthRequest, res)
 );
 
+router.get("/:id/tracking", authMiddleware, (req, res) =>
+  shipmentController.getTracking(req as AuthRequest, res)
+);
+
+router.patch("/:id/picked-up", authMiddleware, (req, res) =>
+  shipmentController.markPickedUp(req as AuthRequest, res)
+);
+
+router.patch("/:id/in-transit", authMiddleware, (req, res) =>
+  shipmentController.markInTransit(req as AuthRequest, res)
+);
+
 router.patch("/:id/rider/accept", authMiddleware, (req, res) =>
   shipmentController.acceptRiderOffer(req as AuthRequest, res)
 );

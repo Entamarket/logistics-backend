@@ -38,6 +38,18 @@ export interface CreateShipmentBody {
     quantity: number;
     note?: string;
   };
+  /** Optional drop-off coordinates for maps. */
+  recipientLongitude?: number;
+  recipientLatitude?: number;
+}
+
+export interface ShipmentTrackingDto {
+  shipmentId: string;
+  status: string;
+  pickup: { longitude: number; latitude: number } | null;
+  recipient: { longitude: number; latitude: number } | null;
+  rider: { longitude: number; latitude: number } | null;
+  riderLocationUpdatedAt: string | null;
 }
 
 export class ShipmentService {
@@ -130,6 +142,8 @@ export class ShipmentService {
       pickupWindowEnd?: Date;
       pickupLongitude?: number;
       pickupLatitude?: number;
+      recipientLongitude?: number;
+      recipientLatitude?: number;
       riderResponseDeadline?: Date;
       declinedRiderIds?: Types.ObjectId[];
     } = {
@@ -153,6 +167,23 @@ export class ShipmentService {
       createPayload.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
       createPayload.declinedRiderIds = [];
     }
+    const recLng = data.recipientLongitude;
+    const recLat = data.recipientLatitude;
+    const hasRecLng = recLng !== undefined && recLng !== null && !Number.isNaN(Number(recLng));
+    const hasRecLat = recLat !== undefined && recLat !== null && !Number.isNaN(Number(recLat));
+    if (hasRecLng !== hasRecLat) {
+      throw new Error("recipientLongitude and recipientLatitude must both be provided together.");
+    }
+    if (hasRecLng && hasRecLat) {
+      const rl = Number(recLng);
+      const ra = Number(recLat);
+      if (rl < -180 || rl > 180 || ra < -90 || ra > 90) {
+        throw new Error("Invalid recipient coordinates.");
+      }
+      createPayload.recipientLongitude = rl;
+      createPayload.recipientLatitude = ra;
+    }
+
     if (data.deliveryType === DeliveryType.SCHEDULED && data.pickupWindowStart != null && data.pickupWindowEnd != null) {
       const start = new Date(data.pickupWindowStart);
       const now = new Date();
@@ -403,5 +434,94 @@ export class ShipmentService {
 
     const list = await Shipment.find(base).sort({ createdAt: -1 }).lean().exec();
     return list as unknown as IShipment[];
+  }
+
+  async getTrackingForOwner(shipmentId: string, ownerUserId: string): Promise<ShipmentTrackingDto | null> {
+    const shipment = await Shipment.findById(shipmentId).lean().exec();
+    if (!shipment) {
+      return null;
+    }
+    if (shipment.userId.toString() !== ownerUserId) {
+      throw new Error("Not authorized to view tracking for this shipment");
+    }
+
+    let riderPoint: { longitude: number; latitude: number } | null = null;
+    let riderLocationUpdatedAt: string | null = null;
+    if (shipment.riderID) {
+      const assigned = await Rider.findById(shipment.riderID).select("location updatedAt").lean().exec();
+      const coords = assigned?.location?.coordinates;
+      if (coords && coords.length >= 2 && typeof coords[0] === "number" && typeof coords[1] === "number") {
+        riderPoint = { longitude: coords[0], latitude: coords[1] };
+        riderLocationUpdatedAt = assigned?.updatedAt ? new Date(assigned.updatedAt).toISOString() : null;
+      }
+    }
+
+    const pickup =
+      shipment.pickupLongitude != null &&
+      shipment.pickupLatitude != null &&
+      !Number.isNaN(shipment.pickupLongitude) &&
+      !Number.isNaN(shipment.pickupLatitude)
+        ? { longitude: shipment.pickupLongitude, latitude: shipment.pickupLatitude }
+        : null;
+
+    const recipient =
+      shipment.recipientLongitude != null &&
+      shipment.recipientLatitude != null &&
+      !Number.isNaN(shipment.recipientLongitude) &&
+      !Number.isNaN(shipment.recipientLatitude)
+        ? { longitude: shipment.recipientLongitude, latitude: shipment.recipientLatitude }
+        : null;
+
+    return {
+      shipmentId: String(shipment._id),
+      status: shipment.status,
+      pickup,
+      recipient,
+      rider: riderPoint,
+      riderLocationUpdatedAt,
+    };
+  }
+
+  private async assertAssignedRiderUser(shipmentId: string, authUserId: string): Promise<IShipment> {
+    const shipment = await Shipment.findById(shipmentId).exec();
+    if (!shipment) {
+      throw new Error("Shipment not found");
+    }
+    if (!shipment.riderID) {
+      throw new Error("Shipment has no assigned rider");
+    }
+    const rider = await Rider.findById(shipment.riderID).exec();
+    if (!rider || rider.userId.toString() !== authUserId) {
+      throw new Error("Not authorized for this shipment");
+    }
+    return shipment;
+  }
+
+  async markPickedUp(shipmentId: string, authUserId: string, role: string): Promise<IShipment> {
+    if (role !== "rider") {
+      throw new Error("Rider access required");
+    }
+    const shipment = await this.assertAssignedRiderUser(shipmentId, authUserId);
+    if (shipment.status !== ShipmentStatus.RIDER_ASSIGNED) {
+      throw new Error("Shipment is not ready to be marked picked up");
+    }
+    shipment.status = ShipmentStatus.PICKED_UP;
+    shipment.timeline.push({ status: ShipmentStatus.PICKED_UP, timestamp: new Date() });
+    await shipment.save();
+    return shipment;
+  }
+
+  async markInTransit(shipmentId: string, authUserId: string, role: string): Promise<IShipment> {
+    if (role !== "rider") {
+      throw new Error("Rider access required");
+    }
+    const shipment = await this.assertAssignedRiderUser(shipmentId, authUserId);
+    if (shipment.status !== ShipmentStatus.PICKED_UP) {
+      throw new Error("Shipment must be picked up before marking in transit");
+    }
+    shipment.status = ShipmentStatus.IN_TRANSIT;
+    shipment.timeline.push({ status: ShipmentStatus.IN_TRANSIT, timestamp: new Date() });
+    await shipment.save();
+    return shipment;
   }
 }

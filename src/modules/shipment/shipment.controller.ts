@@ -16,6 +16,8 @@ export class ShipmentController {
         pickupWindowEnd,
         pickupLongitude,
         pickupLatitude,
+        recipientLongitude,
+        recipientLatitude,
       } = req.body;
 
       if (!senderDetails || !recipientDetails || !packageDetails) {
@@ -48,6 +50,15 @@ export class ShipmentController {
           ? Number(pickupLatitude)
           : undefined;
 
+      const recLng =
+        recipientLongitude !== undefined && recipientLongitude !== null && recipientLongitude !== ""
+          ? Number(recipientLongitude)
+          : undefined;
+      const recLat =
+        recipientLatitude !== undefined && recipientLatitude !== null && recipientLatitude !== ""
+          ? Number(recipientLatitude)
+          : undefined;
+
       const shipment = await shipmentService.createShipment(userId, {
         deliveryType,
         senderDetails,
@@ -56,6 +67,8 @@ export class ShipmentController {
         ...(pickupWindowStart != null && pickupWindowEnd != null && { pickupWindowStart, pickupWindowEnd }),
         ...(lng !== undefined && !Number.isNaN(lng) && { pickupLongitude: lng }),
         ...(lat !== undefined && !Number.isNaN(lat) && { pickupLatitude: lat }),
+        ...(recLng !== undefined && !Number.isNaN(recLng) && { recipientLongitude: recLng }),
+        ...(recLat !== undefined && !Number.isNaN(recLat) && { recipientLatitude: recLat }),
       });
 
       res.status(201).json({
@@ -195,6 +208,82 @@ export class ShipmentController {
         success: false,
         message,
       });
+    }
+  }
+
+  async getTracking(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      const data = await shipmentService.getTrackingForOwner(id, userId);
+      if (!data) {
+        res.status(404).json({ success: false, message: "Shipment not found" });
+        return;
+      }
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching tracking";
+      const lower = message.toLowerCase();
+      const status = lower.includes("not authorized") ? 403 : 500;
+      res.status(status).json({ success: false, message });
+    }
+  }
+
+  async markPickedUp(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      const role = req.user?.role ?? "";
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      const shipment = await shipmentService.markPickedUp(id, userId, role);
+      res.status(200).json({
+        success: true,
+        message: "Marked as picked up",
+        data: shipment,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error updating shipment";
+      res.status(this.mapRiderOfferError(message)).json({ success: false, message });
+    }
+  }
+
+  async markInTransit(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      const role = req.user?.role ?? "";
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      const shipment = await shipmentService.markInTransit(id, userId, role);
+      res.status(200).json({
+        success: true,
+        message: "Marked as in transit",
+        data: shipment,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error updating shipment";
+      res.status(this.mapRiderOfferError(message)).json({ success: false, message });
     }
   }
 
