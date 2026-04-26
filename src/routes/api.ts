@@ -3,6 +3,8 @@ import authRoutes from "../modules/auth/auth.route";
 import shipmentRoutes from "../modules/shipment/shipment.route";
 import riderRoutes from "../modules/rider/rider.route";
 import notificationRoutes from "../modules/notification/notification.route";
+import feedbackRoutes from "../modules/feedback/feedback.route";
+import adminRoutes from "../modules/admin/admin.route";
 
 export const setupRoutes = (app: Express): void => {
   // Root route
@@ -20,4 +22,6 @@ export const setupRoutes = (app: Express): void => {
   app.use("/api/riders", riderRoutes);
 
   app.use("/api/notifications", notificationRoutes);
+  app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/admin", adminRoutes);
 };

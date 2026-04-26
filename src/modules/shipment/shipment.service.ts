@@ -52,6 +52,15 @@ export interface ShipmentTrackingDto {
   riderLocationUpdatedAt: string | null;
 }
 
+/** Deduped contact row for riders (pickup vs drop-off) from assigned shipments. */
+export interface RiderAddressBookEntry {
+  role: "sender" | "recipient";
+  fullName: string;
+  address: string;
+  phone: string;
+  lastSeenAt: string;
+}
+
 export class ShipmentService {
   private riderService = new RiderService();
   private notificationService = new NotificationService();
@@ -434,6 +443,66 @@ export class ShipmentService {
 
     const list = await Shipment.find(base).sort({ createdAt: -1 }).lean().exec();
     return list as unknown as IShipment[];
+  }
+
+  /**
+   * Sender and recipient addresses from every shipment assigned to this rider (deduped by role + normalized address).
+   */
+  async findAddressBookForRiderUser(authUserId: string): Promise<RiderAddressBookEntry[] | null> {
+    await this.processExpiredRiderOffers();
+    const rider = await this.riderService.findByUserId(authUserId);
+    if (!rider) {
+      return null;
+    }
+    const riderObjectId = rider._id as Types.ObjectId;
+    const rows = await Shipment.find({ riderID: riderObjectId })
+      .select("senderDetails recipientDetails updatedAt createdAt")
+      .sort({ updatedAt: -1 })
+      .lean()
+      .exec();
+
+    const normalizeKey = (address: string) => address.trim().replace(/\s+/g, " ").toLowerCase();
+
+    type Acc = RiderAddressBookEntry & { _ts: number };
+    const byKey = new Map<string, Acc>();
+
+    const upsert = (
+      role: "sender" | "recipient",
+      fullName: string,
+      address: string,
+      phone: string,
+      ts: Date
+    ) => {
+      const key = `${role}:${normalizeKey(address)}`;
+      const t = ts.getTime();
+      const prev = byKey.get(key);
+      if (!prev || t >= prev._ts) {
+        byKey.set(key, {
+          role,
+          fullName: fullName.trim(),
+          address: address.trim(),
+          phone: phone.trim(),
+          lastSeenAt: ts.toISOString(),
+          _ts: t,
+        });
+      }
+    };
+
+    for (const row of rows) {
+      const raw = (row as { updatedAt?: Date; createdAt?: Date }).updatedAt ?? (row as { createdAt?: Date }).createdAt;
+      const ts = raw ? new Date(raw) : new Date();
+      const s = (row as { senderDetails?: { fullName: string; address: string; phone: string } }).senderDetails;
+      const r = (row as { recipientDetails?: { fullName: string; address: string; phone: string } }).recipientDetails;
+      if (s?.address) upsert("sender", s.fullName ?? "", s.address, s.phone ?? "", ts);
+      if (r?.address) upsert("recipient", r.fullName ?? "", r.address, r.phone ?? "", ts);
+    }
+
+    return Array.from(byKey.values())
+      .map((v) => {
+        const { _ts, ...entry } = v;
+        return entry;
+      })
+      .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
   }
 
   async getTrackingForOwner(shipmentId: string, ownerUserId: string): Promise<ShipmentTrackingDto | null> {

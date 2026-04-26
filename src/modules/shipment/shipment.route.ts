@@ -17,6 +17,10 @@ router.get("/rider/me", authMiddleware, (req, res) =>
   shipmentController.getShipmentsForRider(req as AuthRequest, res)
 );
 
+router.get("/rider/me/address-book", authMiddleware, (req, res) =>
+  shipmentController.getRiderAddressBook(req as AuthRequest, res)
+);
+
 router.get("/:id/tracking", authMiddleware, (req, res) =>
   shipmentController.getTracking(req as AuthRequest, res)
 );

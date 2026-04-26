@@ -211,6 +211,29 @@ export class ShipmentController {
     }
   }
 
+  async getRiderAddressBook(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (req.user?.role !== "rider") {
+        res.status(403).json({ success: false, message: "Rider access required" });
+        return;
+      }
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const entries = await shipmentService.findAddressBookForRiderUser(userId);
+      if (entries === null) {
+        res.status(404).json({ success: false, message: "Rider profile not found" });
+        return;
+      }
+      res.status(200).json({ success: true, data: entries });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching address book";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
   async getTracking(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.userId;
