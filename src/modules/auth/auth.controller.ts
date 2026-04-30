@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { CookieOptions, Request, Response } from "express";
 import { AuthService } from "./auth.service";
 import { EmailVerificationPurpose } from "../../shared/lib/enums";
 
@@ -6,10 +6,10 @@ const authService = new AuthService();
 
 export class AuthController {
   private setAuthCookie(res: Response, token: string): void {
-    const cookieOptions = {
+    const cookieOptions: CookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: (process.env.NODE_ENV === "production") ? "none" : "strict",//"strict" as const,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     };
     res.cookie("token", token, cookieOptions);
