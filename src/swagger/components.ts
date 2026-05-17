@@ -95,6 +95,21 @@ export const swaggerComponents = {
         role: { type: "string", enum: ["client", "rider", "admin"], example: "client" },
       },
     },
+    UserProfile: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        firstName: { type: "string", example: "Ada" },
+        lastName: { type: "string", example: "Okafor" },
+        email: { type: "string", example: "ada@example.com" },
+        phone: { type: "string", example: "+2348012345678" },
+        role: { type: "string", enum: ["client", "rider", "admin"] },
+        status: { type: "string", enum: ["active", "suspended", "blocked"] },
+        isEmailVerified: { type: "boolean" },
+        createdAt: { type: "string", format: "date-time" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+    },
     RiderUserRef: {
       type: "object",
       properties: {

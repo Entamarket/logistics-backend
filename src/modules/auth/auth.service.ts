@@ -48,6 +48,40 @@ export interface LoginResponse {
   token: string;
 }
 
+export interface UserProfileDto {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  role: string;
+  status: string;
+  isEmailVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateProfileData {
+  firstName: string;
+  lastName: string;
+  phone: string;
+}
+
+function toProfileDto(user: IUser): UserProfileDto {
+  return {
+    id: user._id.toString(),
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    phone: user.phone,
+    role: user.role,
+    status: user.status || UserAccountStatus.ACTIVE,
+    isEmailVerified: user.isEmailVerified,
+    createdAt: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt.toISOString(),
+  };
+}
+
 export class AuthService {
   private generateToken(user: IUser): string {
     const jwtSecret = process.env.JWT_SECRET || "your-secret-key-change-in-production";
@@ -420,6 +454,37 @@ export class AuthService {
         logger.error("Failed to send password reset OTP email", { error, email: user.email });
       });
     }
+  }
+
+  async getProfile(userId: string): Promise<UserProfileDto> {
+    const user = await User.findById(userId).select("-password").exec();
+    if (!user) {
+      throw new Error("User not found");
+    }
+    return toProfileDto(user);
+  }
+
+  async updateProfile(userId: string, data: UpdateProfileData): Promise<UserProfileDto> {
+    const user = await User.findById(userId).exec();
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const firstName = data.firstName.trim();
+    const lastName = data.lastName.trim();
+    const phone = data.phone.trim();
+
+    if (!firstName) throw new Error("First name is required");
+    if (!lastName) throw new Error("Last name is required");
+    if (!phone) throw new Error("Phone number is required");
+    if (phone.length < 6) throw new Error("Please enter a valid phone number");
+
+    user.firstName = firstName;
+    user.lastName = lastName;
+    user.phone = phone;
+    await user.save();
+
+    return toProfileDto(user);
   }
 
 }

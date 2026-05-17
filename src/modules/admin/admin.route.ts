@@ -10,10 +10,18 @@ router.use(authMiddleware);
 router.use(adminMiddleware);
 
 router.get("/revenue", (req, res) => adminController.revenueSummary(req as AuthRequest, res));
+router.get("/financial-reports", (req, res) => adminController.financialReports(req as AuthRequest, res));
 router.get("/available-riders", (req, res) => adminController.listAvailableRiders(req as AuthRequest, res));
 router.get("/shipments", (req, res) => adminController.listShipments(req as AuthRequest, res));
+router.post("/shipments/bulk", (req, res) => adminController.bulkCreateShipments(req as AuthRequest, res));
 router.patch("/shipments/:id/assign", (req, res) => adminController.assignShipment(req as AuthRequest, res));
 router.get("/shipments/:id", (req, res) => adminController.getShipment(req as AuthRequest, res));
+
+router.get("/riders/:id/performance", (req, res) => adminController.getRiderPerformance(req as AuthRequest, res));
+
+router.get("/complaints", (req, res) => adminController.listComplaints(req as AuthRequest, res));
+router.patch("/complaints/:id/status", (req, res) => adminController.updateComplaintStatus(req as AuthRequest, res));
+router.get("/complaints/:id", (req, res) => adminController.getComplaint(req as AuthRequest, res));
 
 router.get("/clients", (req, res) => adminController.listClients(req as AuthRequest, res));
 router.get("/clients/:id/activity", (req, res) => adminController.getClientActivity(req as AuthRequest, res));

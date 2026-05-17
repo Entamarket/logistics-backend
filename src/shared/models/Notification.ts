@@ -8,6 +8,7 @@ export interface INotification extends Document {
   message: string;
   read: boolean;
   relatedShipmentId?: Types.ObjectId | null;
+  relatedComplaintId?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +32,11 @@ const notificationSchema = new Schema<INotification>(
     relatedShipmentId: {
       type: Schema.Types.ObjectId,
       ref: "Shipment",
+      default: null,
+    },
+    relatedComplaintId: {
+      type: Schema.Types.ObjectId,
+      ref: "Complaint",
       default: null,
     },
   },

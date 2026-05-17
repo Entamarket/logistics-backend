@@ -1,8 +1,10 @@
 import { Response } from "express";
 import { AuthRequest } from "../../shared/middlewares/auth.middleware";
 import { AdminService } from "./admin.service";
+import { ComplaintService } from "../complaint/complaint.service";
 
 const adminService = new AdminService();
+const complaintService = new ComplaintService();
 
 export class AdminController {
   async revenueSummary(req: AuthRequest, res: Response): Promise<void> {
@@ -13,6 +15,18 @@ export class AdminController {
       res.status(200).json({ success: true, data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Error fetching revenue summary";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
+  async financialReports(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const raw = typeof req.query.months === "string" ? parseInt(req.query.months, 10) : 12;
+      const months = Number.isFinite(raw) ? Math.min(Math.max(raw, 3), 36) : 12;
+      const data = await adminService.getFinancialReports(months);
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching financial reports";
       res.status(500).json({ success: false, message });
     }
   }
@@ -57,6 +71,68 @@ export class AdminController {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Error fetching available riders";
       res.status(500).json({ success: false, message });
+    }
+  }
+
+  async bulkCreateShipments(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { clientId, defaultRiderId, shipments } = req.body as {
+        clientId?: string;
+        defaultRiderId?: string;
+        shipments?: unknown[];
+      };
+      if (!clientId || typeof clientId !== "string") {
+        res.status(400).json({ success: false, message: "clientId is required" });
+        return;
+      }
+      if (!defaultRiderId || typeof defaultRiderId !== "string") {
+        res.status(400).json({ success: false, message: "defaultRiderId is required" });
+        return;
+      }
+      if (!Array.isArray(shipments) || shipments.length === 0) {
+        res.status(400).json({ success: false, message: "shipments must be a non-empty array" });
+        return;
+      }
+      if (shipments.length > 20) {
+        res.status(400).json({ success: false, message: "Maximum 20 shipments per batch" });
+        return;
+      }
+      const results = await adminService.bulkCreateShipmentsAndAssign({
+        clientId: clientId.trim(),
+        defaultRiderId: defaultRiderId.trim(),
+        shipments: shipments as Array<{
+          deliveryType: "instant" | "scheduled";
+          senderDetails: { fullName: string; address: string; phone: string };
+          recipientDetails: { fullName: string; address: string; phone: string };
+          packageDetails: {
+            type: string;
+            weight: number;
+            dimensions: number;
+            quantity: number;
+            note?: string;
+          };
+          pickupWindowStart?: string;
+          pickupWindowEnd?: string;
+          pickupLongitude?: number;
+          pickupLatitude?: number;
+          recipientLongitude?: number;
+          recipientLatitude?: number;
+          riderId?: string;
+        }>,
+      });
+      const succeeded = results.filter((r) => r.success).length;
+      res.status(200).json({
+        success: true,
+        message: `${succeeded} of ${results.length} shipment(s) created and assigned`,
+        data: { results },
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error creating shipments";
+      const status =
+        message.includes("not found") || message.includes("cannot create")
+          ? 400
+          : 500;
+      res.status(status).json({ success: false, message });
     }
   }
 
@@ -161,6 +237,90 @@ export class AdminController {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Error updating client status";
       const code = message.includes("not found") ? 404 : message.includes("status must") ? 400 : 500;
+      res.status(code).json({ success: false, message });
+    }
+  }
+
+  async getRiderPerformance(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Rider id is required" });
+        return;
+      }
+      const raw = typeof req.query.months === "string" ? parseInt(req.query.months, 10) : 12;
+      const months = Number.isFinite(raw) ? Math.min(Math.max(raw, 3), 24) : 12;
+      const data = await adminService.getRiderPerformance(id, months);
+      if (!data) {
+        res.status(404).json({ success: false, message: "Rider not found" });
+        return;
+      }
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching rider performance";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
+  async listComplaints(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const reporterType = typeof req.query.reporterType === "string" ? req.query.reporterType.trim() : undefined;
+      const status = typeof req.query.status === "string" ? req.query.status.trim() : undefined;
+      const rawLimit =
+        typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
+      const limit = rawLimit !== undefined && Number.isFinite(rawLimit) ? rawLimit : undefined;
+      const data = await complaintService.listForAdmin({
+        reporterType: reporterType || undefined,
+        status: status || undefined,
+        limit,
+      });
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching complaints";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
+  async getComplaint(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Complaint id is required" });
+        return;
+      }
+      const data = await complaintService.getByIdForAdmin(id);
+      if (!data) {
+        res.status(404).json({ success: false, message: "Complaint not found" });
+        return;
+      }
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching complaint";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
+  async updateComplaintStatus(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { status } = req.body as { status?: string };
+      if (!id) {
+        res.status(400).json({ success: false, message: "Complaint id is required" });
+        return;
+      }
+      if (!status) {
+        res.status(400).json({ success: false, message: "status is required" });
+        return;
+      }
+      const data = await complaintService.updateStatus(id, status);
+      if (!data) {
+        res.status(404).json({ success: false, message: "Complaint not found" });
+        return;
+      }
+      res.status(200).json({ success: true, message: "Complaint status updated", data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error updating complaint status";
+      const code = message.includes("status must") ? 400 : message.includes("not found") ? 404 : 500;
       res.status(code).json({ success: false, message });
     }
   }

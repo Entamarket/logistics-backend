@@ -1,7 +1,9 @@
 import { Types } from "mongoose";
 import { Notification, INotification } from "../../shared/models/Notification";
+import { User } from "../../shared/models/User";
 import { NotificationType } from "../../shared/lib/enums";
 import { broadcastToUser } from "../../realtime/wsHub";
+import { logger } from "../../shared/lib/logger";
 
 export interface NotificationDto {
   _id: string;
@@ -11,6 +13,7 @@ export interface NotificationDto {
   message: string;
   read: boolean;
   relatedShipmentId: string | null;
+  relatedComplaintId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,6 +27,7 @@ function toDto(doc: INotification): NotificationDto {
     message: doc.message,
     read: doc.read,
     relatedShipmentId: doc.relatedShipmentId ? doc.relatedShipmentId.toString() : null,
+    relatedComplaintId: doc.relatedComplaintId ? doc.relatedComplaintId.toString() : null,
     createdAt: doc.createdAt.toISOString(),
     updatedAt: doc.updatedAt.toISOString(),
   };
@@ -37,6 +41,7 @@ export class NotificationService {
       title: string;
       message: string;
       relatedShipmentId?: string | null;
+      relatedComplaintId?: string | null;
     }
   ): Promise<NotificationDto> {
     const doc = await Notification.create({
@@ -48,12 +53,45 @@ export class NotificationService {
       relatedShipmentId: params.relatedShipmentId
         ? new Types.ObjectId(params.relatedShipmentId)
         : null,
+      relatedComplaintId: params.relatedComplaintId
+        ? new Types.ObjectId(params.relatedComplaintId)
+        : null,
     });
     const dto = toDto(doc);
     broadcastToUser(userId, { event: "notification", notification: dto });
     const count = await this.countUnread(userId);
     broadcastToUser(userId, { event: "unread_count", count });
     return dto;
+  }
+
+  async notifyAdminsNewComplaint(params: {
+    complaintId: string;
+    reporterType: string;
+    subject: string;
+  }): Promise<void> {
+    try {
+      const admins = await User.find({ role: "admin" }).select("_id").lean().exec();
+      if (admins.length === 0) return;
+
+      const reporterLabel = params.reporterType === "rider" ? "Rider" : "Client";
+      const title = `New ${reporterLabel.toLowerCase()} complaint`;
+      const message = `${reporterLabel} complaint: "${params.subject}". Open Complaints to review.`;
+
+      await Promise.all(
+        admins.map((admin) =>
+          this.createForUser(String(admin._id), {
+            type: NotificationType.COMPLAINT_SUBMITTED,
+            title,
+            message,
+            relatedComplaintId: params.complaintId,
+          })
+        )
+      );
+    } catch (e) {
+      logger.error("Failed to notify admins of new complaint", {
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   async listForUser(userId: string, limit = 50): Promise<NotificationDto[]> {

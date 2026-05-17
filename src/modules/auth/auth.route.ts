@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { AuthController } from "./auth.controller";
-import { authMiddleware } from "../../shared/middlewares/auth.middleware";
+import { authMiddleware, AuthRequest } from "../../shared/middlewares/auth.middleware";
 
 const router = Router();
 const authController = new AuthController();
@@ -28,6 +28,9 @@ router.post("/resend-otp", (req, res) => authController.resendOTP(req, res));
 
 // WebSocket: expose JWT for native WS (cookie is httpOnly)
 router.get("/ws-token", authMiddleware, (req, res) => authController.getWsToken(req, res));
+
+router.get("/me", authMiddleware, (req, res) => authController.getMe(req as AuthRequest, res));
+router.patch("/me", authMiddleware, (req, res) => authController.updateMe(req as AuthRequest, res));
 
 export default router;
 

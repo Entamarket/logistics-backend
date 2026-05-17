@@ -1,6 +1,7 @@
 import { CookieOptions, Request, Response } from "express";
 import { AuthService } from "./auth.service";
 import { EmailVerificationPurpose } from "../../shared/lib/enums";
+import { AuthRequest } from "../../shared/middlewares/auth.middleware";
 
 const authService = new AuthService();
 
@@ -336,6 +337,52 @@ export class AuthController {
       success: true,
       data: { token },
     });
+  }
+
+  async getMe(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const data = await authService.getProfile(userId);
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching profile";
+      res.status(message === "User not found" ? 404 : 500).json({ success: false, message });
+    }
+  }
+
+  async updateMe(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { firstName, lastName, phone } = req.body as {
+        firstName?: string;
+        lastName?: string;
+        phone?: string;
+      };
+      if (!firstName || !lastName || !phone) {
+        res.status(400).json({
+          success: false,
+          message: "firstName, lastName, and phone are required",
+        });
+        return;
+      }
+      const data = await authService.updateProfile(userId, { firstName, lastName, phone });
+      res.status(200).json({
+        success: true,
+        message: "Profile updated successfully",
+        data,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error updating profile";
+      res.status(400).json({ success: false, message });
+    }
   }
 }
 

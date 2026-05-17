@@ -5,7 +5,7 @@ import { User, IUser } from "../../shared/models/User";
 import { Feedback } from "../../shared/models/Feedback";
 import { RiderStatus, ShipmentStatus, UserAccountStatus } from "../../shared/lib/enums";
 import { RiderService } from "../rider/rider.service";
-import { ShipmentService } from "../shipment/shipment.service";
+import { ShipmentService, CreateShipmentBody } from "../shipment/shipment.service";
 
 export interface MonthlyRevenueDto {
   yearMonth: string;
@@ -26,6 +26,27 @@ export interface RevenueSummaryDto {
   monthly: MonthlyRevenueDto[];
 }
 
+export interface MonthlyFinancialReportDto {
+  yearMonth: string;
+  label: string;
+  revenue: number;
+  deliveredCount: number;
+  averageOrderValue: number;
+  changeFromPreviousPct: number | null;
+}
+
+export interface FinancialReportsDto {
+  currency: "NGN";
+  generatedAt: string;
+  monthCount: number;
+  allTimeRevenue: number;
+  allTimeDeliveredCount: number;
+  periodTotalRevenue: number;
+  periodTotalDelivered: number;
+  periodAverageMonthlyRevenue: number;
+  monthly: MonthlyFinancialReportDto[];
+}
+
 export interface AdminClientDto {
   id: string;
   firstName: string;
@@ -40,6 +61,13 @@ export interface AdminRiderDto {
   lastName: string;
   email: string;
   phone: string;
+}
+
+export interface AdminBulkShipmentResult {
+  index: number;
+  success: boolean;
+  shipmentId?: string;
+  error?: string;
 }
 
 export interface AdminShipmentListItem {
@@ -130,6 +158,32 @@ export interface AdminClientActivity {
 export interface ListClientsQuery {
   q?: string;
   limit?: number;
+}
+
+export interface RiderMonthlyPerformance {
+  yearMonth: string;
+  label: string;
+  completedCount: number;
+}
+
+export interface RiderCompletedOrder {
+  id: string;
+  status: string;
+  deliveryType: string;
+  price: number;
+  paymentStatus: string;
+  deliveredAt: string;
+  createdAt: string;
+  senderName: string;
+  recipientName: string;
+  client: { id: string; firstName: string; lastName: string; email: string };
+}
+
+export interface RiderPerformanceDto {
+  riderId: string;
+  totalCompleted: number;
+  monthly: RiderMonthlyPerformance[];
+  orders: RiderCompletedOrder[];
 }
 
 function escapeRegex(value: string): string {
@@ -396,6 +450,81 @@ export class AdminService {
     };
   }
 
+  /**
+   * Monthly financial report: revenue and delivery counts per calendar month.
+   */
+  async getFinancialReports(monthCount: number): Promise<FinancialReportsDto> {
+    const rows = (await Shipment.find({ status: ShipmentStatus.DELIVERED })
+      .select("price timeline updatedAt")
+      .lean()
+      .exec()) as LeanShipment[];
+
+    let allTimeRevenue = 0;
+    const revenueByMonth = new Map<string, number>();
+    const countByMonth = new Map<string, number>();
+
+    for (const row of rows) {
+      const price = typeof row.price === "number" && !Number.isNaN(row.price) ? row.price : 0;
+      allTimeRevenue += price;
+      const t = deliveredAtFromDoc(row);
+      const key = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
+      revenueByMonth.set(key, (revenueByMonth.get(key) || 0) + price);
+      countByMonth.set(key, (countByMonth.get(key) || 0) + 1);
+    }
+
+    const now = new Date();
+    const monthly: MonthlyFinancialReportDto[] = [];
+    let periodTotalRevenue = 0;
+    let periodTotalDelivered = 0;
+    let previousRevenue: number | null = null;
+
+    for (let i = monthCount - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = d.toLocaleString(undefined, { month: "long", year: "numeric" });
+      const revenue = revenueByMonth.get(key) || 0;
+      const deliveredCount = countByMonth.get(key) || 0;
+      const averageOrderValue =
+        deliveredCount > 0 ? Math.round(revenue / deliveredCount) : 0;
+
+      let changeFromPreviousPct: number | null = null;
+      if (previousRevenue !== null) {
+        changeFromPreviousPct =
+          previousRevenue > 0
+            ? Math.round(((revenue - previousRevenue) / previousRevenue) * 100)
+            : revenue > 0
+              ? 100
+              : 0;
+      }
+
+      monthly.push({
+        yearMonth: key,
+        label,
+        revenue,
+        deliveredCount,
+        averageOrderValue,
+        changeFromPreviousPct,
+      });
+
+      periodTotalRevenue += revenue;
+      periodTotalDelivered += deliveredCount;
+      previousRevenue = revenue;
+    }
+
+    return {
+      currency: "NGN",
+      generatedAt: new Date().toISOString(),
+      monthCount,
+      allTimeRevenue,
+      allTimeDeliveredCount: rows.length,
+      periodTotalRevenue,
+      periodTotalDelivered,
+      periodAverageMonthlyRevenue:
+        monthCount > 0 ? Math.round(periodTotalRevenue / monthCount) : 0,
+      monthly,
+    };
+  }
+
   async listShipments(query: ListShipmentsQuery = {}): Promise<AdminShipmentListItem[]> {
     const limit = Math.min(Math.max(query.limit ?? 100, 1), 200);
     const filter: Record<string, unknown> = {};
@@ -440,6 +569,42 @@ export class AdminService {
       throw new Error("Shipment not found after assignment");
     }
     return detail;
+  }
+
+  async bulkCreateShipmentsAndAssign(params: {
+    clientId: string;
+    defaultRiderId: string;
+    shipments: Array<CreateShipmentBody & { riderId?: string }>;
+  }): Promise<AdminBulkShipmentResult[]> {
+    const { clientId, defaultRiderId, shipments } = params;
+    const client = await this.findClientById(clientId);
+    if (!client) {
+      throw new Error("Client not found");
+    }
+    const clientStatus = client.status || UserAccountStatus.ACTIVE;
+    if (clientStatus !== UserAccountStatus.ACTIVE) {
+      throw new Error("This client account cannot create shipments.");
+    }
+
+    const results: AdminBulkShipmentResult[] = [];
+    for (let index = 0; index < shipments.length; index++) {
+      const item = shipments[index];
+      const riderId = (item.riderId?.trim() || defaultRiderId).trim();
+      if (!riderId) {
+        results.push({ index, success: false, error: "Rider is required for this shipment" });
+        continue;
+      }
+      try {
+        const { riderId: _override, ...shipmentData } = item;
+        const created = await this.shipmentService.createShipmentForAdmin(clientId, shipmentData);
+        await this.shipmentService.adminAssignRider(created._id.toString(), riderId);
+        results.push({ index, success: true, shipmentId: created._id.toString() });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Failed to create or assign shipment";
+        results.push({ index, success: false, error: message });
+      }
+    }
+    return results;
   }
 
   private async findClientById(id: string): Promise<IUser | null> {
@@ -573,6 +738,77 @@ export class AdminService {
     return {
       ...mapUserToListItem({ ...plain, shipmentCount: stats.totalShipments }),
       stats,
+    };
+  }
+
+  async getRiderPerformance(riderId: string, monthCount: number): Promise<RiderPerformanceDto | null> {
+    if (!Types.ObjectId.isValid(riderId)) return null;
+    const riderExists = await Rider.exists({ _id: riderId }).exec();
+    if (!riderExists) return null;
+
+    const riderObjectId = new Types.ObjectId(riderId);
+    const rows = await Shipment.find({
+      riderID: riderObjectId,
+      status: ShipmentStatus.DELIVERED,
+    })
+      .populate("userId", "firstName lastName email")
+      .sort({ updatedAt: -1 })
+      .lean()
+      .exec();
+
+    const byMonth = new Map<string, number>();
+    const orders: RiderCompletedOrder[] = [];
+
+    for (const row of rows) {
+      const deliveredAt = deliveredAtFromDoc(row as LeanShipment);
+      const key = `${deliveredAt.getFullYear()}-${String(deliveredAt.getMonth() + 1).padStart(2, "0")}`;
+      byMonth.set(key, (byMonth.get(key) || 0) + 1);
+
+      const user = row.userId;
+      let client = { id: "", firstName: "", lastName: "", email: "" };
+      if (isPopulatedUser(user)) {
+        client = {
+          id: user._id.toString(),
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+        };
+      } else if (user) {
+        client = { id: String(user), firstName: "", lastName: "", email: "" };
+      }
+
+      orders.push({
+        id: String(row._id),
+        status: row.status,
+        deliveryType: row.deliveryType,
+        price: row.price,
+        paymentStatus: row.paymentStatus,
+        deliveredAt: deliveredAt.toISOString(),
+        createdAt: new Date(row.createdAt).toISOString(),
+        senderName: row.senderDetails?.fullName ?? "—",
+        recipientName: row.recipientDetails?.fullName ?? "—",
+        client,
+      });
+    }
+
+    const now = new Date();
+    const monthly: RiderMonthlyPerformance[] = [];
+    for (let i = monthCount - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = d.toLocaleString(undefined, { month: "short", year: "2-digit" });
+      monthly.push({
+        yearMonth: key,
+        label,
+        completedCount: byMonth.get(key) || 0,
+      });
+    }
+
+    return {
+      riderId,
+      totalCompleted: orders.length,
+      monthly,
+      orders,
     };
   }
 }

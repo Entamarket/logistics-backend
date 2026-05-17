@@ -65,5 +65,18 @@ export enum NotificationType {
   SHIPMENT_ASSIGNED = "shipment_assigned",
   RIDER_ACCEPTED_SHIPMENT = "rider_accepted_shipment",
   DELIVERY_COMPLETE = "delivery_complete",
+  COMPLAINT_SUBMITTED = "complaint_submitted",
+}
+
+/** Who filed the complaint (snapshot at submit time). */
+export enum ComplaintReporterType {
+  CLIENT = "client",
+  RIDER = "rider",
+}
+
+export enum ComplaintStatus {
+  OPEN = "open",
+  IN_REVIEW = "in_review",
+  RESOLVED = "resolved",
 }
 

@@ -248,6 +248,120 @@ export class ShipmentService {
     }
   }
 
+  /**
+   * Admin creates a shipment on behalf of a client without auto nearest-rider matching.
+   * Rider assignment is done separately via adminAssignRider.
+   */
+  async createShipmentForAdmin(clientUserId: string, data: CreateShipmentBody): Promise<IShipment> {
+    const clientUser = await User.findById(clientUserId).select("status role").lean().exec();
+    if (!clientUser) {
+      throw new Error("Client not found");
+    }
+    if (clientUser.role !== "client") {
+      throw new Error("Selected user is not a client");
+    }
+    const accountStatus = clientUser.status || UserAccountStatus.ACTIVE;
+    if (accountStatus !== UserAccountStatus.ACTIVE) {
+      throw new Error("This client account cannot create shipments.");
+    }
+
+    const initialStatus =
+      data.deliveryType === DeliveryType.SCHEDULED ? ShipmentStatus.SCHEDULED : ShipmentStatus.PENDING;
+    const price = Math.round(data.packageDetails.weight * PRICE_PER_KG);
+
+    if (data.deliveryType === DeliveryType.INSTANT) {
+      const lng = data.pickupLongitude;
+      const lat = data.pickupLatitude;
+      if (lng === undefined || lat === undefined || Number.isNaN(lng) || Number.isNaN(lat)) {
+        throw new Error("pickupLongitude and pickupLatitude are required for instant delivery.");
+      }
+      if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+        throw new Error("Invalid pickup coordinates.");
+      }
+    }
+
+    const createPayload: {
+      userId: Types.ObjectId;
+      status: string;
+      deliveryType: string;
+      riderID: Types.ObjectId | null;
+      price: number;
+      paymentStatus: string;
+      timeline: { status: string; timestamp: Date }[];
+      senderDetails: typeof data.senderDetails;
+      recipientDetails: typeof data.recipientDetails;
+      packageDetails: { type: string; weight: number; dimensions: number; quantity: number; note: string };
+      pickupWindowStart?: Date;
+      pickupWindowEnd?: Date;
+      pickupLongitude?: number;
+      pickupLatitude?: number;
+      recipientLongitude?: number;
+      recipientLatitude?: number;
+    } = {
+      userId: new Types.ObjectId(clientUserId),
+      status: initialStatus,
+      deliveryType: data.deliveryType,
+      riderID: null,
+      price,
+      paymentStatus: PaymentStatus.PENDING,
+      timeline: [{ status: initialStatus, timestamp: new Date() }],
+      senderDetails: data.senderDetails,
+      recipientDetails: data.recipientDetails,
+      packageDetails: {
+        ...data.packageDetails,
+        note: data.packageDetails.note ?? "",
+      },
+    };
+
+    if (data.deliveryType === DeliveryType.INSTANT && data.pickupLongitude != null && data.pickupLatitude != null) {
+      createPayload.pickupLongitude = data.pickupLongitude;
+      createPayload.pickupLatitude = data.pickupLatitude;
+    }
+
+    const recLng = data.recipientLongitude;
+    const recLat = data.recipientLatitude;
+    const hasRecLng = recLng !== undefined && recLng !== null && !Number.isNaN(Number(recLng));
+    const hasRecLat = recLat !== undefined && recLat !== null && !Number.isNaN(Number(recLat));
+    if (hasRecLng !== hasRecLat) {
+      throw new Error("recipientLongitude and recipientLatitude must both be provided together.");
+    }
+    if (hasRecLng && hasRecLat) {
+      const rl = Number(recLng);
+      const ra = Number(recLat);
+      if (rl < -180 || rl > 180 || ra < -90 || ra > 90) {
+        throw new Error("Invalid recipient coordinates.");
+      }
+      createPayload.recipientLongitude = rl;
+      createPayload.recipientLatitude = ra;
+    }
+
+    if (data.deliveryType === DeliveryType.SCHEDULED && data.pickupWindowStart != null && data.pickupWindowEnd != null) {
+      const start = new Date(data.pickupWindowStart);
+      const now = new Date();
+
+      const todayStartUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      const startDateUTC = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(), 0, 0, 0, 0));
+      const maxDateUTC = new Date(todayStartUTC);
+      maxDateUTC.setUTCDate(maxDateUTC.getUTCDate() + 7);
+
+      if (startDateUTC.getTime() < todayStartUTC.getTime()) {
+        throw new Error("Pickup date cannot be in the past.");
+      }
+      if (startDateUTC.getTime() > maxDateUTC.getTime()) {
+        throw new Error("Pickup date cannot be more than 7 days ahead.");
+      }
+      const oneHourFromNow = now.getTime() + 60 * 60 * 1000;
+      if (start.getTime() < oneHourFromNow) {
+        throw new Error("Pickup must be at least 1 hour from now.");
+      }
+
+      createPayload.pickupWindowStart = start;
+      createPayload.pickupWindowEnd = new Date(data.pickupWindowEnd);
+    }
+
+    return Shipment.create(createPayload);
+  }
+
   async markDelivered(shipmentId: string, authUserId: string, role: string): Promise<IShipment> {
     const shipment = await Shipment.findById(shipmentId).exec();
     if (!shipment) {

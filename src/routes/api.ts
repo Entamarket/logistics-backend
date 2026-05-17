@@ -5,6 +5,7 @@ import shipmentRoutes from "../modules/shipment/shipment.route";
 import riderRoutes from "../modules/rider/rider.route";
 import notificationRoutes from "../modules/notification/notification.route";
 import feedbackRoutes from "../modules/feedback/feedback.route";
+import complaintRoutes from "../modules/complaint/complaint.route";
 import adminRoutes from "../modules/admin/admin.route";
 
 export const setupRoutes = (app: Express): void => {
@@ -26,5 +27,6 @@ export const setupRoutes = (app: Express): void => {
 
   app.use("/api/notifications", notificationRoutes);
   app.use("/api/feedback", feedbackRoutes);
+  app.use("/api/complaints", complaintRoutes);
   app.use("/api/admin", adminRoutes);
 };

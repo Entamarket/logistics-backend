@@ -254,6 +254,69 @@ export const authPaths = {
       },
     },
   },
+  "/api/auth/me": {
+    get: {
+      tags: ["Auth"],
+      summary: "Get current user profile",
+      security: cookieSecurity,
+      responses: {
+        "200": {
+          description: "Profile",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/UserProfile" },
+                },
+              },
+            },
+          },
+        },
+        "401": { description: "Not authenticated", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+    patch: {
+      tags: ["Auth"],
+      summary: "Update current user profile",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["firstName", "lastName", "phone"],
+              properties: {
+                firstName: { type: "string", example: "Jane" },
+                lastName: { type: "string", example: "Doe" },
+                phone: { type: "string", example: "+2348012345678" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Updated profile",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string", example: "Profile updated successfully" },
+                  data: { $ref: "#/components/schemas/UserProfile" },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
   "/api/auth/ws-token": {
     get: {
       tags: ["Auth"],

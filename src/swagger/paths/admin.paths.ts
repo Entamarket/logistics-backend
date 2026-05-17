@@ -33,6 +33,64 @@ export const adminPaths = {
       },
     },
   },
+  "/api/admin/financial-reports": {
+    get: {
+      tags: ["Admin"],
+      summary: "Monthly financial reports (admin)",
+      security: cookieSecurity,
+      parameters: [
+        {
+          name: "months",
+          in: "query",
+          schema: { type: "integer", default: 12, minimum: 3, maximum: 36 },
+          description: "Number of calendar months to include",
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Monthly financial report series",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: {
+                    type: "object",
+                    properties: {
+                      currency: { type: "string", example: "NGN" },
+                      generatedAt: { type: "string", format: "date-time" },
+                      monthCount: { type: "integer" },
+                      allTimeRevenue: { type: "number" },
+                      allTimeDeliveredCount: { type: "integer" },
+                      periodTotalRevenue: { type: "number" },
+                      periodTotalDelivered: { type: "integer" },
+                      periodAverageMonthlyRevenue: { type: "number" },
+                      monthly: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            yearMonth: { type: "string", example: "2026-05" },
+                            label: { type: "string", example: "May 2026" },
+                            revenue: { type: "number" },
+                            deliveredCount: { type: "integer" },
+                            averageOrderValue: { type: "number" },
+                            changeFromPreviousPct: { type: "integer", nullable: true },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Admin access required", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
   "/api/admin/available-riders": {
     get: {
       tags: ["Admin"],
@@ -65,6 +123,81 @@ export const adminPaths = {
             },
           },
         },
+      },
+    },
+  },
+  "/api/admin/shipments/bulk": {
+    post: {
+      tags: ["Admin"],
+      summary: "Bulk create shipments for a client and assign riders",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["clientId", "defaultRiderId", "shipments"],
+              properties: {
+                clientId: { type: "string" },
+                defaultRiderId: { type: "string" },
+                shipments: {
+                  type: "array",
+                  maxItems: 20,
+                  items: {
+                    type: "object",
+                    required: ["deliveryType", "senderDetails", "recipientDetails", "packageDetails"],
+                    properties: {
+                      deliveryType: { type: "string", enum: ["instant", "scheduled"] },
+                      riderId: { type: "string", description: "Optional per-row rider override" },
+                      senderDetails: { $ref: "#/components/schemas/ContactDetails" },
+                      recipientDetails: { $ref: "#/components/schemas/ContactDetails" },
+                      packageDetails: { $ref: "#/components/schemas/PackageDetails" },
+                      pickupWindowStart: { type: "string", format: "date-time" },
+                      pickupWindowEnd: { type: "string", format: "date-time" },
+                      pickupLongitude: { type: "number" },
+                      pickupLatitude: { type: "number" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Per-row create/assign results (partial success allowed)",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: {
+                    type: "object",
+                    properties: {
+                      results: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            index: { type: "integer" },
+                            success: { type: "boolean" },
+                            shipmentId: { type: "string" },
+                            error: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
       },
     },
   },
