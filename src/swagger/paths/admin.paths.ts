@@ -55,33 +55,7 @@ export const adminPaths = {
                 type: "object",
                 properties: {
                   success: { type: "boolean", example: true },
-                  data: {
-                    type: "object",
-                    properties: {
-                      currency: { type: "string", example: "NGN" },
-                      generatedAt: { type: "string", format: "date-time" },
-                      monthCount: { type: "integer" },
-                      allTimeRevenue: { type: "number" },
-                      allTimeDeliveredCount: { type: "integer" },
-                      periodTotalRevenue: { type: "number" },
-                      periodTotalDelivered: { type: "integer" },
-                      periodAverageMonthlyRevenue: { type: "number" },
-                      monthly: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            yearMonth: { type: "string", example: "2026-05" },
-                            label: { type: "string", example: "May 2026" },
-                            revenue: { type: "number" },
-                            deliveredCount: { type: "integer" },
-                            averageOrderValue: { type: "number" },
-                            changeFromPreviousPct: { type: "integer", nullable: true },
-                          },
-                        },
-                      },
-                    },
-                  },
+                  data: { $ref: "#/components/schemas/FinancialReports" },
                 },
               },
             },
@@ -423,6 +397,143 @@ export const adminPaths = {
           },
         },
         "404": { description: "Client not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/admin/riders/{id}/performance": {
+    get: {
+      tags: ["Admin"],
+      summary: "Rider delivery performance (monthly chart and completed orders)",
+      security: cookieSecurity,
+      parameters: [
+        { $ref: "#/components/parameters/RiderId" },
+        {
+          name: "months",
+          in: "query",
+          schema: { type: "integer", default: 12, minimum: 3, maximum: 24 },
+          description: "Number of calendar months in the monthly series",
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Rider performance data",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/RiderPerformance" },
+                },
+              },
+            },
+          },
+        },
+        "404": { description: "Rider not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/admin/complaints": {
+    get: {
+      tags: ["Admin"],
+      summary: "List all complaints (client and rider)",
+      security: cookieSecurity,
+      parameters: [
+        {
+          name: "reporterType",
+          in: "query",
+          schema: { type: "string", enum: ["client", "rider"] },
+          description: "Filter by who filed the complaint",
+        },
+        {
+          name: "status",
+          in: "query",
+          schema: { type: "string", enum: ["open", "in_review", "resolved"] },
+        },
+        { name: "limit", in: "query", schema: { type: "integer", default: 100, maximum: 200 } },
+      ],
+      responses: {
+        "200": {
+          description: "Complaint list with reporter details",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { type: "array", items: { $ref: "#/components/schemas/AdminComplaint" } },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Admin access required", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/admin/complaints/{id}/status": {
+    patch: {
+      tags: ["Admin"],
+      summary: "Update complaint status",
+      security: cookieSecurity,
+      parameters: [{ $ref: "#/components/parameters/ComplaintId" }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["status"],
+              properties: {
+                status: { type: "string", enum: ["open", "in_review", "resolved"], example: "in_review" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Updated complaint",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string", example: "Complaint status updated" },
+                  data: { $ref: "#/components/schemas/AdminComplaint" },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Invalid status", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "404": { description: "Complaint not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/admin/complaints/{id}": {
+    get: {
+      tags: ["Admin"],
+      summary: "Get complaint by id",
+      security: cookieSecurity,
+      parameters: [{ $ref: "#/components/parameters/ComplaintId" }],
+      responses: {
+        "200": {
+          description: "Complaint detail",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/AdminComplaint" },
+                },
+              },
+            },
+          },
+        },
+        "404": { description: "Complaint not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
       },
     },
   },

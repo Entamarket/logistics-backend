@@ -3,6 +3,7 @@ import { shipmentPaths } from "./shipments.paths";
 import { riderPaths } from "./riders.paths";
 import { notificationPaths } from "./notifications.paths";
 import { feedbackPaths } from "./feedback.paths";
+import { complaintPaths } from "./complaints.paths";
 import { adminPaths } from "./admin.paths";
 
 export const rootPaths = {
@@ -31,5 +32,6 @@ export const openApiPaths = {
   ...riderPaths,
   ...notificationPaths,
   ...feedbackPaths,
+  ...complaintPaths,
   ...adminPaths,
 };

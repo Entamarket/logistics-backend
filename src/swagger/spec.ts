@@ -26,6 +26,7 @@ export const openApiSpec = {
     { name: "Riders", description: "Rider profile and admin rider management" },
     { name: "Notifications", description: "In-app notifications" },
     { name: "Feedback", description: "Post-delivery ratings" },
+    { name: "Complaints", description: "Client and rider complaints" },
     { name: "Admin", description: "Admin dashboard APIs" },
   ],
   paths: openApiPaths,

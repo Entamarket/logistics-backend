@@ -151,13 +151,19 @@ export const swaggerComponents = {
         userId: { type: "string" },
         type: {
           type: "string",
-          enum: ["shipment_assigned", "rider_accepted_shipment", "delivery_complete"],
+          enum: [
+            "shipment_assigned",
+            "rider_accepted_shipment",
+            "delivery_complete",
+            "complaint_submitted",
+          ],
           example: "shipment_assigned",
         },
         title: { type: "string", example: "New shipment assigned" },
         message: { type: "string", example: "A shipment is waiting for your response." },
         read: { type: "boolean", example: false },
         relatedShipmentId: { type: "string", nullable: true, example: "664a1b2c3d4e5f6789012345" },
+        relatedComplaintId: { type: "string", nullable: true, example: "664a1b2c3d4e5f6789012370" },
         createdAt: { type: "string", format: "date-time" },
         updatedAt: { type: "string", format: "date-time" },
       },
@@ -295,6 +301,115 @@ export const swaggerComponents = {
         lastSeenAt: { type: "string", format: "date-time" },
       },
     },
+    Complaint: {
+      type: "object",
+      properties: {
+        id: { type: "string", example: "664a1b2c3d4e5f6789012370" },
+        userId: { type: "string", example: "664a1b2c3d4e5f6789012340" },
+        reporterType: { type: "string", enum: ["client", "rider"], example: "client" },
+        subject: { type: "string", example: "Late delivery" },
+        message: { type: "string", example: "The rider arrived two hours late." },
+        phone: { type: "string", example: "+2348012345678" },
+        relatedShipmentId: { type: "string", nullable: true, example: "664a1b2c3d4e5f6789012345" },
+        status: { type: "string", enum: ["open", "in_review", "resolved"], example: "open" },
+        createdAt: { type: "string", format: "date-time" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+    },
+    ComplaintReporter: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        firstName: { type: "string", example: "Ada" },
+        lastName: { type: "string", example: "Okafor" },
+        email: { type: "string", example: "ada@example.com" },
+        phone: { type: "string", example: "+2348012345678" },
+      },
+    },
+    AdminComplaint: {
+      allOf: [
+        { $ref: "#/components/schemas/Complaint" },
+        {
+          type: "object",
+          properties: {
+            reporter: { $ref: "#/components/schemas/ComplaintReporter" },
+          },
+        },
+      ],
+    },
+    RiderMonthlyPerformance: {
+      type: "object",
+      properties: {
+        yearMonth: { type: "string", example: "2026-05" },
+        label: { type: "string", example: "May 26" },
+        completedCount: { type: "integer", example: 8 },
+      },
+    },
+    RiderCompletedOrder: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        status: { type: "string", example: "delivered" },
+        deliveryType: { type: "string", example: "instant" },
+        price: { type: "number", example: 1250 },
+        paymentStatus: { type: "string", example: "paid" },
+        deliveredAt: { type: "string", format: "date-time" },
+        createdAt: { type: "string", format: "date-time" },
+        senderName: { type: "string", example: "Ada Okafor" },
+        recipientName: { type: "string", example: "John Doe" },
+        client: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            firstName: { type: "string" },
+            lastName: { type: "string" },
+            email: { type: "string" },
+          },
+        },
+      },
+    },
+    RiderPerformance: {
+      type: "object",
+      properties: {
+        riderId: { type: "string", example: "664a1b2c3d4e5f6789012346" },
+        totalCompleted: { type: "integer", example: 42 },
+        monthly: {
+          type: "array",
+          items: { $ref: "#/components/schemas/RiderMonthlyPerformance" },
+        },
+        orders: {
+          type: "array",
+          items: { $ref: "#/components/schemas/RiderCompletedOrder" },
+        },
+      },
+    },
+    FinancialReports: {
+      type: "object",
+      properties: {
+        currency: { type: "string", example: "NGN" },
+        generatedAt: { type: "string", format: "date-time" },
+        monthCount: { type: "integer", example: 12 },
+        allTimeRevenue: { type: "number", example: 250000 },
+        allTimeDeliveredCount: { type: "integer", example: 48 },
+        periodTotalRevenue: { type: "number", example: 120000 },
+        periodTotalDelivered: { type: "integer", example: 22 },
+        periodAverageMonthlyRevenue: { type: "number", example: 10000 },
+        monthly: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              yearMonth: { type: "string", example: "2026-05" },
+              label: { type: "string", example: "May 2026" },
+              revenue: { type: "number", example: 45000 },
+              deliveredCount: { type: "integer", example: 8 },
+              averageOrderValue: { type: "number", example: 5625 },
+              changeFromPreviousPct: { type: "integer", nullable: true, example: 12 },
+            },
+          },
+        },
+      },
+    },
   },
   parameters: {
     ShipmentId: {
@@ -320,6 +435,12 @@ export const swaggerComponents = {
       in: "path",
       required: true,
       schema: { type: "string", example: "664a1b2c3d4e5f6789012340" },
+    },
+    ComplaintId: {
+      name: "id",
+      in: "path",
+      required: true,
+      schema: { type: "string", example: "664a1b2c3d4e5f6789012370" },
     },
   },
 };
