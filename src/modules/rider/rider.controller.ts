@@ -119,6 +119,41 @@ export class RiderController {
     }
   }
 
+  async updateMyAvailability(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (req.user?.role !== "rider") {
+        res.status(403).json({ success: false, message: "Rider access required" });
+        return;
+      }
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { isAvailable } = req.body;
+      if (typeof isAvailable !== "boolean") {
+        res.status(400).json({
+          success: false,
+          message: "isAvailable is required and must be a boolean",
+        });
+        return;
+      }
+      const rider = await riderService.updateAvailabilityByUserId(userId, isAvailable);
+      if (!rider) {
+        res.status(404).json({ success: false, message: "Rider profile not found" });
+        return;
+      }
+      res.status(200).json({
+        success: true,
+        message: isAvailable ? "You are now available for new assignments" : "You are now off duty for new assignments",
+        data: rider,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error updating availability";
+      res.status(400).json({ success: false, message });
+    }
+  }
+
   async updateMyLocation(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (req.user?.role !== "rider") {

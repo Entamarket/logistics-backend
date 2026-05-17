@@ -53,6 +53,42 @@ export const riderPaths = {
       responses: riderResponse,
     },
   },
+  "/api/riders/me/availability": {
+    patch: {
+      tags: ["Riders"],
+      summary: "Update current rider availability for new assignments",
+      description:
+        "Riders may set isAvailable to false anytime (off duty; current deliveries continue). Setting true requires active status and verified profile.",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["isAvailable"],
+              properties: {
+                isAvailable: {
+                  type: "boolean",
+                  example: true,
+                  description: "When true, rider can be matched to new instant shipments (if location is set).",
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        ...riderResponse,
+        "400": {
+          description: "Invalid body or cannot go available (inactive/unverified account)",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "403": { description: "Rider access required", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "404": { description: "Rider profile not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
   "/api/riders": {
     post: {
       tags: ["Riders"],

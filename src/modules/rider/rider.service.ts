@@ -212,6 +212,28 @@ export class RiderService {
     return Rider.findOne({ userId }).populate("userId", "firstName lastName email phone").exec();
   }
 
+  async updateAvailabilityByUserId(userId: string, isAvailable: boolean): Promise<IRider | null> {
+    const rider = await Rider.findOne({ userId }).exec();
+    if (!rider) return null;
+
+    if (isAvailable) {
+      if (rider.status !== RiderStatus.ACTIVE) {
+        throw new Error("Your account must be active before you can go available for new jobs.");
+      }
+      if (!rider.isVerified) {
+        throw new Error("Your rider profile must be verified before you can go available for new jobs.");
+      }
+    }
+
+    return Rider.findOneAndUpdate(
+      { userId },
+      { $set: { isAvailable } },
+      { new: true, runValidators: true }
+    )
+      .populate("userId", "firstName lastName email phone")
+      .exec();
+  }
+
   async setRiderAvailable(riderId: string, available: boolean): Promise<void> {
     await Rider.findByIdAndUpdate(riderId, { $set: { isAvailable: available } }, { runValidators: true }).exec();
   }
