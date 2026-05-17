@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { UserAccountStatus } from "../lib/enums";
 
 export interface IUser extends Document {
   firstName: string;
@@ -7,6 +8,7 @@ export interface IUser extends Document {
   phone: string;
   password: string;
   role: string;
+  status: string;
   isEmailVerified: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -46,6 +48,11 @@ const userSchema = new Schema<IUser>(
       type: String,
       enum: ["client", "admin", "rider"],
       default: "client",
+    },
+    status: {
+      type: String,
+      enum: Object.values(UserAccountStatus),
+      default: UserAccountStatus.ACTIVE,
     },
     isEmailVerified: {
       type: Boolean,

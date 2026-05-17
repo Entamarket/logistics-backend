@@ -40,6 +40,15 @@ export enum PaymentStatus {
 }
 
 /**
+ * Client (and general user) account status
+ */
+export enum UserAccountStatus {
+  ACTIVE = "active",
+  SUSPENDED = "suspended",
+  BLOCKED = "blocked",
+}
+
+/**
  * Rider account status
  */
 export enum RiderStatus {

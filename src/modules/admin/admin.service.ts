@@ -1,6 +1,11 @@
+import { Types } from "mongoose";
 import { Shipment } from "../../shared/models/Shipment";
-import { Rider } from "../../shared/models/Rider";
-import { RiderStatus, ShipmentStatus } from "../../shared/lib/enums";
+import { Rider, IRider } from "../../shared/models/Rider";
+import { User, IUser } from "../../shared/models/User";
+import { Feedback } from "../../shared/models/Feedback";
+import { RiderStatus, ShipmentStatus, UserAccountStatus } from "../../shared/lib/enums";
+import { RiderService } from "../rider/rider.service";
+import { ShipmentService } from "../shipment/shipment.service";
 
 export interface MonthlyRevenueDto {
   yearMonth: string;
@@ -19,6 +24,297 @@ export interface RevenueSummaryDto {
   availableRidersCount: number;
   /** Last `monthCount` calendar months, including zeros. */
   monthly: MonthlyRevenueDto[];
+}
+
+export interface AdminClientDto {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
+
+export interface AdminRiderDto {
+  riderId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
+
+export interface AdminShipmentListItem {
+  id: string;
+  status: string;
+  deliveryType: string;
+  price: number;
+  paymentStatus: string;
+  createdAt: string;
+  client: AdminClientDto;
+  rider: AdminRiderDto | null;
+  assignmentLabel: string;
+}
+
+export interface AdminShipmentDetail extends AdminShipmentListItem {
+  senderDetails: { fullName: string; address: string; phone: string };
+  recipientDetails: { fullName: string; address: string; phone: string };
+  packageDetails: {
+    type: string;
+    weight: number;
+    dimensions: number;
+    quantity: number;
+    note?: string;
+  };
+  timeline: { status: string; timestamp: string }[];
+  pickupWindowStart?: string;
+  pickupWindowEnd?: string;
+  pickupLongitude?: number;
+  pickupLatitude?: number;
+  recipientLongitude?: number;
+  recipientLatitude?: number;
+  riderResponseDeadline?: string;
+  declinedRiderCount: number;
+  updatedAt: string;
+}
+
+export interface ListShipmentsQuery {
+  status?: string;
+  limit?: number;
+}
+
+export interface AdminClientListItem {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  status: string;
+  isEmailVerified: boolean;
+  createdAt: string;
+  shipmentCount: number;
+}
+
+export interface AdminClientStats {
+  totalShipments: number;
+  activeShipments: number;
+  deliveredCount: number;
+  totalSpent: number;
+}
+
+export interface AdminClientDetail extends AdminClientListItem {
+  stats: AdminClientStats;
+}
+
+export interface AdminClientActivityShipment {
+  id: string;
+  status: string;
+  deliveryType: string;
+  price: number;
+  paymentStatus: string;
+  createdAt: string;
+  recipientName: string;
+}
+
+export interface AdminClientActivityFeedback {
+  id: string;
+  shipmentId: string;
+  rating: number;
+  comment: string;
+  createdAt: string;
+}
+
+export interface AdminClientActivity {
+  shipments: AdminClientActivityShipment[];
+  feedback: AdminClientActivityFeedback[];
+}
+
+export interface ListClientsQuery {
+  q?: string;
+  limit?: number;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+type ClientUserFields = {
+  _id: Types.ObjectId;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  status?: string;
+  isEmailVerified: boolean;
+  createdAt: Date;
+  shipmentCount?: number;
+};
+
+function mapUserToListItem(user: ClientUserFields): AdminClientListItem {
+  return {
+    id: user._id.toString(),
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    phone: user.phone,
+    status: user.status || UserAccountStatus.ACTIVE,
+    isEmailVerified: user.isEmailVerified,
+    createdAt: new Date(user.createdAt).toISOString(),
+    shipmentCount: user.shipmentCount ?? 0,
+  };
+}
+
+type PopulatedUser = {
+  _id: Types.ObjectId;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+};
+
+type PopulatedRider = {
+  _id: Types.ObjectId;
+  userId: PopulatedUser | Types.ObjectId;
+};
+
+type PopulatedShipmentDoc = {
+  _id: Types.ObjectId;
+  userId: PopulatedUser | Types.ObjectId;
+  status: string;
+  deliveryType: string;
+  price: number;
+  paymentStatus: string;
+  riderID?: PopulatedRider | Types.ObjectId | null;
+  senderDetails: AdminShipmentDetail["senderDetails"];
+  recipientDetails: AdminShipmentDetail["recipientDetails"];
+  packageDetails: AdminShipmentDetail["packageDetails"];
+  timeline?: { status: string; timestamp?: Date }[];
+  pickupWindowStart?: Date;
+  pickupWindowEnd?: Date;
+  pickupLongitude?: number;
+  pickupLatitude?: number;
+  recipientLongitude?: number;
+  recipientLatitude?: number;
+  riderResponseDeadline?: Date;
+  declinedRiderIds?: Types.ObjectId[];
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+const shipmentPopulate = [
+  { path: "userId", select: "firstName lastName email phone" },
+  {
+    path: "riderID",
+    populate: { path: "userId", select: "firstName lastName email phone" },
+  },
+];
+
+function isPopulatedUser(v: unknown): v is PopulatedUser {
+  return v != null && typeof v === "object" && "firstName" in v && "email" in v;
+}
+
+function isPopulatedRider(v: PopulatedRider | Types.ObjectId | null | undefined): v is PopulatedRider {
+  return v != null && typeof v === "object" && "userId" in v;
+}
+
+function mapClient(userId: PopulatedUser | Types.ObjectId): AdminClientDto {
+  if (!isPopulatedUser(userId)) {
+    const id = userId.toString();
+    return { id, firstName: "", lastName: "", email: "", phone: "" };
+  }
+  return {
+    id: userId._id.toString(),
+    firstName: userId.firstName,
+    lastName: userId.lastName,
+    email: userId.email,
+    phone: userId.phone,
+  };
+}
+
+function mapRider(riderID: PopulatedRider | Types.ObjectId | null | undefined): AdminRiderDto | null {
+  if (!riderID || !isPopulatedRider(riderID)) return null;
+  const user = riderID.userId;
+  if (!isPopulatedUser(user)) return null;
+  return {
+    riderId: riderID._id.toString(),
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    phone: user.phone,
+  };
+}
+
+function mapRiderDocToDto(rider: IRider): AdminRiderDto | null {
+  const user = rider.userId;
+  if (!isPopulatedUser(user)) return null;
+  const u = user;
+  return {
+    riderId: (rider._id as Types.ObjectId).toString(),
+    firstName: u.firstName,
+    lastName: u.lastName,
+    email: u.email,
+    phone: u.phone,
+  };
+}
+
+function assignmentLabel(status: string, rider: AdminRiderDto | null): string {
+  if (!rider) {
+    if (status === ShipmentStatus.SEARCHING_RIDER) return "Searching for rider";
+    return "Unassigned";
+  }
+  if (status === ShipmentStatus.AWAITING_RIDER_RESPONSE) return "Offer pending";
+  if (
+    status === ShipmentStatus.RIDER_ASSIGNED ||
+    status === ShipmentStatus.PICKED_UP ||
+    status === ShipmentStatus.IN_TRANSIT
+  ) {
+    return "Assigned";
+  }
+  if (status === ShipmentStatus.DELIVERED) return "Delivered";
+  if (status === ShipmentStatus.CANCELLED) return "Cancelled";
+  return "Assigned";
+}
+
+function toIso(d: Date | undefined): string | undefined {
+  return d ? new Date(d).toISOString() : undefined;
+}
+
+function mapListItem(doc: PopulatedShipmentDoc): AdminShipmentListItem {
+  const client = mapClient(doc.userId);
+  const rider = mapRider(doc.riderID);
+  return {
+    id: doc._id.toString(),
+    status: doc.status,
+    deliveryType: doc.deliveryType,
+    price: doc.price,
+    paymentStatus: doc.paymentStatus,
+    createdAt: new Date(doc.createdAt).toISOString(),
+    client,
+    rider,
+    assignmentLabel: assignmentLabel(doc.status, rider),
+  };
+}
+
+function mapDetail(doc: PopulatedShipmentDoc): AdminShipmentDetail {
+  const base = mapListItem(doc);
+  const timeline = (doc.timeline ?? []).map((e) => ({
+    status: e.status,
+    timestamp: e.timestamp ? new Date(e.timestamp).toISOString() : new Date().toISOString(),
+  }));
+  return {
+    ...base,
+    senderDetails: doc.senderDetails,
+    recipientDetails: doc.recipientDetails,
+    packageDetails: doc.packageDetails,
+    timeline,
+    pickupWindowStart: toIso(doc.pickupWindowStart),
+    pickupWindowEnd: toIso(doc.pickupWindowEnd),
+    pickupLongitude: doc.pickupLongitude,
+    pickupLatitude: doc.pickupLatitude,
+    recipientLongitude: doc.recipientLongitude,
+    recipientLatitude: doc.recipientLatitude,
+    riderResponseDeadline: toIso(doc.riderResponseDeadline),
+    declinedRiderCount: doc.declinedRiderIds?.length ?? 0,
+    updatedAt: new Date(doc.updatedAt).toISOString(),
+  };
 }
 
 type LeanShipment = {
@@ -40,6 +336,9 @@ function deliveredAtFromDoc(row: LeanShipment): Date {
 }
 
 export class AdminService {
+  private riderService = new RiderService();
+  private shipmentService = new ShipmentService();
+
   /**
    * Platform revenue from completed deliveries: sum of `price` on delivered shipments.
    * Monthly series covers the last `monthCount` calendar months (amounts only from those months).
@@ -94,6 +393,186 @@ export class AdminService {
       activeShipmentCount,
       availableRidersCount,
       monthly,
+    };
+  }
+
+  async listShipments(query: ListShipmentsQuery = {}): Promise<AdminShipmentListItem[]> {
+    const limit = Math.min(Math.max(query.limit ?? 100, 1), 200);
+    const filter: Record<string, unknown> = {};
+    if (query.status) {
+      filter.status = query.status;
+    }
+
+    const rows = (await Shipment.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate(shipmentPopulate)
+      .lean()
+      .exec()) as unknown as PopulatedShipmentDoc[];
+
+    return rows.map(mapListItem);
+  }
+
+  async getShipmentById(id: string): Promise<AdminShipmentDetail | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    const doc = (await Shipment.findById(id)
+      .populate(shipmentPopulate)
+      .lean()
+      .exec()) as PopulatedShipmentDoc | null;
+    if (!doc) return null;
+    return mapDetail(doc);
+  }
+
+  async listAvailableRiders(): Promise<AdminRiderDto[]> {
+    const rows = await this.riderService.listAvailableRiders();
+    const dtos: AdminRiderDto[] = [];
+    for (const row of rows) {
+      const dto = mapRiderDocToDto(row);
+      if (dto) dtos.push(dto);
+    }
+    return dtos;
+  }
+
+  async assignShipmentToRider(shipmentId: string, riderId: string): Promise<AdminShipmentDetail> {
+    await this.shipmentService.adminAssignRider(shipmentId, riderId);
+    const detail = await this.getShipmentById(shipmentId);
+    if (!detail) {
+      throw new Error("Shipment not found after assignment");
+    }
+    return detail;
+  }
+
+  private async findClientById(id: string): Promise<IUser | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    const user = await User.findOne({ _id: id, role: "client" })
+      .select("-password")
+      .exec();
+    return user;
+  }
+
+  private async getClientStats(userId: Types.ObjectId): Promise<AdminClientStats> {
+    const uid = userId;
+    const [totalShipments, activeShipments, deliveredCount, deliveredRows] = await Promise.all([
+      Shipment.countDocuments({ userId: uid }).exec(),
+      Shipment.countDocuments({
+        userId: uid,
+        status: { $nin: [ShipmentStatus.DELIVERED, ShipmentStatus.CANCELLED] },
+      }).exec(),
+      Shipment.countDocuments({ userId: uid, status: ShipmentStatus.DELIVERED }).exec(),
+      Shipment.find({ userId: uid, status: ShipmentStatus.DELIVERED }).select("price").lean().exec(),
+    ]);
+    let totalSpent = 0;
+    for (const row of deliveredRows) {
+      const price = typeof row.price === "number" && !Number.isNaN(row.price) ? row.price : 0;
+      totalSpent += price;
+    }
+    return { totalShipments, activeShipments, deliveredCount, totalSpent };
+  }
+
+  async listClients(query: ListClientsQuery = {}): Promise<AdminClientListItem[]> {
+    const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
+    const match: Record<string, unknown> = { role: "client" };
+    const q = query.q?.trim();
+    if (q) {
+      const pattern = escapeRegex(q);
+      const regex = new RegExp(pattern, "i");
+      match.$or = [{ firstName: regex }, { lastName: regex }, { email: regex }, { phone: regex }];
+    }
+
+    const rows = await User.aggregate([
+      { $match: match },
+      {
+        $lookup: {
+          from: "shipments",
+          localField: "_id",
+          foreignField: "userId",
+          as: "_shipments",
+        },
+      },
+      { $addFields: { shipmentCount: { $size: "$_shipments" } } },
+      { $project: { password: 0, _shipments: 0 } },
+      { $sort: { createdAt: -1 } },
+      { $limit: limit },
+    ]).exec();
+
+    return rows.map((row) => mapUserToListItem(row as ClientUserFields & { shipmentCount: number }));
+  }
+
+  async getClientById(id: string): Promise<AdminClientDetail | null> {
+    const user = await this.findClientById(id);
+    if (!user) return null;
+    const stats = await this.getClientStats(user._id as Types.ObjectId);
+    const shipmentCount = stats.totalShipments;
+    const plain = user.toObject() as ClientUserFields;
+    return { ...mapUserToListItem({ ...plain, shipmentCount }), stats };
+  }
+
+  async getClientActivity(id: string): Promise<AdminClientActivity | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    const userExists = await User.exists({ _id: id, role: "client" }).exec();
+    if (!userExists) return null;
+
+    const userObjectId = new Types.ObjectId(id);
+    const [shipments, feedbackRows] = await Promise.all([
+      Shipment.find({ userId: userObjectId })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .select("status deliveryType price paymentStatus createdAt recipientDetails")
+        .lean()
+        .exec(),
+      Feedback.find({ clientUserId: userObjectId })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean()
+        .exec(),
+    ]);
+
+    return {
+      shipments: shipments.map((s) => ({
+        id: String(s._id),
+        status: s.status,
+        deliveryType: s.deliveryType,
+        price: s.price,
+        paymentStatus: s.paymentStatus,
+        createdAt: new Date(s.createdAt).toISOString(),
+        recipientName: s.recipientDetails?.fullName ?? "—",
+      })),
+      feedback: feedbackRows.map((f) => ({
+        id: String(f._id),
+        shipmentId: String(f.shipmentId),
+        rating: f.rating,
+        comment: f.comment ?? "",
+        createdAt: new Date(f.createdAt).toISOString(),
+      })),
+    };
+  }
+
+  async updateClientStatus(
+    id: string,
+    status: "active" | "suspended" | "blocked"
+  ): Promise<AdminClientDetail> {
+    if (
+      status !== UserAccountStatus.ACTIVE &&
+      status !== UserAccountStatus.SUSPENDED &&
+      status !== UserAccountStatus.BLOCKED
+    ) {
+      throw new Error("status must be 'active', 'suspended', or 'blocked'");
+    }
+    const user = await User.findOneAndUpdate(
+      { _id: id, role: "client" },
+      { $set: { status } },
+      { new: true, runValidators: true }
+    )
+      .select("-password")
+      .exec();
+    if (!user) {
+      throw new Error("Client not found");
+    }
+    const stats = await this.getClientStats(user._id as Types.ObjectId);
+    const plain = user.toObject() as ClientUserFields;
+    return {
+      ...mapUserToListItem({ ...plain, shipmentCount: stats.totalShipments }),
+      stats,
     };
   }
 }

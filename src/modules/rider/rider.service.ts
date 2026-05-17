@@ -215,4 +215,34 @@ export class RiderService {
   async setRiderAvailable(riderId: string, available: boolean): Promise<void> {
     await Rider.findByIdAndUpdate(riderId, { $set: { isAvailable: available } }, { runValidators: true }).exec();
   }
+
+  /**
+   * Atomically claims a specific rider if active, verified, and available.
+   */
+  async claimRiderById(riderId: string): Promise<IRider | null> {
+    if (!Types.ObjectId.isValid(riderId)) return null;
+    return Rider.findOneAndUpdate(
+      {
+        _id: riderId,
+        status: RiderStatus.ACTIVE,
+        isVerified: true,
+        isAvailable: true,
+      },
+      { $set: { isAvailable: false } },
+      { new: true, runValidators: true }
+    )
+      .populate("userId", "firstName lastName email phone")
+      .exec();
+  }
+
+  async listAvailableRiders(): Promise<IRider[]> {
+    return Rider.find({
+      status: RiderStatus.ACTIVE,
+      isVerified: true,
+      isAvailable: true,
+    })
+      .populate("userId", "firstName lastName email phone")
+      .sort({ updatedAt: -1 })
+      .exec();
+  }
 }

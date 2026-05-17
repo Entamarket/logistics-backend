@@ -2,7 +2,7 @@ import bcrypt from "bcrypt";
 import jwt, { SignOptions } from "jsonwebtoken";
 import { User, IUser } from "../../shared/models/User";
 import { EmailVerification } from "../../shared/models/EmailVerification";
-import { EmailVerificationPurpose } from "../../shared/lib/enums";
+import { EmailVerificationPurpose, UserAccountStatus } from "../../shared/lib/enums";
 import type { StringValue } from "ms";
 import { sendOTPEmail, sendPasswordResetOTPEmail } from "../../config/email";
 import { generateOTP } from "../../shared/lib/utils";
@@ -139,6 +139,16 @@ export class AuthService {
       }
     } else {
       throw new Error("Invalid email or password");
+    }
+
+    if (user.role === "client") {
+      const status = user.status || UserAccountStatus.ACTIVE;
+      if (status === UserAccountStatus.SUSPENDED) {
+        throw new Error("Your account has been suspended. Contact support for assistance.");
+      }
+      if (status === UserAccountStatus.BLOCKED) {
+        throw new Error("Your account has been blocked. Contact support for assistance.");
+      }
     }
 
     // Check if email is verified

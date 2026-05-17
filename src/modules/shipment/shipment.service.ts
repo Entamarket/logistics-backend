@@ -1,7 +1,14 @@
 import { Types } from "mongoose";
 import { Shipment, IShipment } from "../../shared/models/Shipment";
 import { Rider } from "../../shared/models/Rider";
-import { DeliveryType, ShipmentStatus, PaymentStatus, NotificationType } from "../../shared/lib/enums";
+import {
+  DeliveryType,
+  ShipmentStatus,
+  PaymentStatus,
+  NotificationType,
+  UserAccountStatus,
+} from "../../shared/lib/enums";
+import { User } from "../../shared/models/User";
 import { RiderService } from "../rider/rider.service";
 import { NotificationService } from "../notification/notification.service";
 import { logger } from "../../shared/lib/logger";
@@ -114,6 +121,17 @@ export class ShipmentService {
   }
 
   async createShipment(userId: string, data: CreateShipmentBody): Promise<IShipment> {
+    const clientUser = await User.findById(userId).select("status role").lean().exec();
+    if (!clientUser) {
+      throw new Error("User not found");
+    }
+    if (clientUser.role === "client") {
+      const status = clientUser.status || UserAccountStatus.ACTIVE;
+      if (status !== UserAccountStatus.ACTIVE) {
+        throw new Error("Your account cannot create shipments. Contact support for assistance.");
+      }
+    }
+
     let initialStatus =
       data.deliveryType === DeliveryType.SCHEDULED ? ShipmentStatus.SCHEDULED : ShipmentStatus.PENDING;
     const price = Math.round(data.packageDetails.weight * PRICE_PER_KG);
@@ -592,5 +610,53 @@ export class ShipmentService {
     shipment.timeline.push({ status: ShipmentStatus.IN_TRANSIT, timestamp: new Date() });
     await shipment.save();
     return shipment;
+  }
+
+  private static readonly ADMIN_ASSIGNABLE_STATUSES: string[] = [
+    ShipmentStatus.PENDING,
+    ShipmentStatus.SCHEDULED,
+    ShipmentStatus.SEARCHING_RIDER,
+    ShipmentStatus.AWAITING_RIDER_RESPONSE,
+  ];
+
+  /**
+   * Admin assigns an available rider; rider must accept the offer (same flow as instant auto-match).
+   */
+  async adminAssignRider(shipmentId: string, riderId: string): Promise<IShipment> {
+    const shipment = await Shipment.findById(shipmentId).exec();
+    if (!shipment) {
+      throw new Error("Shipment not found");
+    }
+    if (!ShipmentService.ADMIN_ASSIGNABLE_STATUSES.includes(shipment.status)) {
+      throw new Error("This shipment cannot be assigned in its current status");
+    }
+
+    if (shipment.status === ShipmentStatus.AWAITING_RIDER_RESPONSE && shipment.riderID) {
+      await this.riderService.setRiderAvailable(shipment.riderID.toString(), true);
+    }
+
+    const claimed = await this.riderService.claimRiderById(riderId);
+    if (!claimed) {
+      throw new Error("Rider is not available or does not meet assignment requirements");
+    }
+
+    try {
+      shipment.riderID = claimed._id as Types.ObjectId;
+      shipment.status = ShipmentStatus.AWAITING_RIDER_RESPONSE;
+      shipment.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
+      if (!shipment.declinedRiderIds?.length) {
+        shipment.declinedRiderIds = shipment.declinedRiderIds ?? [];
+      }
+      shipment.timeline.push({
+        status: ShipmentStatus.AWAITING_RIDER_RESPONSE,
+        timestamp: new Date(),
+      });
+      await shipment.save();
+      void this.notifyRiderShipmentAssigned(claimed._id.toString(), shipment._id.toString());
+      return shipment;
+    } catch (err) {
+      await this.riderService.setRiderAvailable(riderId, true);
+      throw err;
+    }
   }
 }
