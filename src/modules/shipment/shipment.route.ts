@@ -25,6 +25,14 @@ router.post("/estimate-price", authMiddleware, (req, res) =>
   shipmentController.estimateShipmentPrice(req as AuthRequest, res)
 );
 
+router.post("/:id/payment/initialize", authMiddleware, (req, res) =>
+  shipmentController.initializeShipmentPayment(req as AuthRequest, res)
+);
+
+router.post("/:id/payment/verify", authMiddleware, (req, res) =>
+  shipmentController.verifyShipmentPayment(req as AuthRequest, res)
+);
+
 router.get("/:id/tracking", authMiddleware, (req, res) =>
   shipmentController.getTracking(req as AuthRequest, res)
 );

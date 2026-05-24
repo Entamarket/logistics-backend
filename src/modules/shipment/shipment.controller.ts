@@ -52,6 +52,55 @@ export class ShipmentController {
     }
   }
 
+  async initializeShipmentPayment(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      const data = await shipmentService.initializeShipmentPayment(id, userId);
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error initializing payment";
+      res.status(400).json({ success: false, message });
+    }
+  }
+
+  async verifyShipmentPayment(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { id } = req.params;
+      const { reference } = req.body ?? {};
+      if (!id) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      if (!reference) {
+        res.status(400).json({ success: false, message: "reference is required" });
+        return;
+      }
+      const shipment = await shipmentService.verifyShipmentPayment(id, userId, String(reference));
+      res.status(200).json({
+        success: true,
+        message: "Payment verified",
+        data: shipment,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error verifying payment";
+      res.status(400).json({ success: false, message });
+    }
+  }
+
   async createShipment(req: AuthRequest, res: Response): Promise<void> {
     try {
       const {

@@ -20,6 +20,12 @@ import {
   type ShipmentPriceBreakdown,
 } from "../../shared/lib/shipment-pricing";
 import { drivingDistanceMeters, geocodeAddress } from "../../shared/lib/google-maps.service";
+import {
+  generatePaymentReference,
+  getPaystackPublicKey,
+  initializeTransaction,
+  verifyTransaction,
+} from "../../shared/lib/paystack.service";
 
 export type { ShipmentPriceBreakdown };
 const RIDER_RESPONSE_WINDOW_MS = 3 * 60 * 1000;
@@ -200,7 +206,6 @@ export class ShipmentService {
       data.packageDetails.heightCm
     );
 
-    let assignedRiderId: Types.ObjectId | null = null;
     if (data.deliveryType === DeliveryType.INSTANT) {
       const lng = data.pickupLongitude;
       const lat = data.pickupLatitude;
@@ -210,12 +215,6 @@ export class ShipmentService {
       if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
         throw new Error("Invalid pickup coordinates.");
       }
-      const rider = await this.riderService.claimNearestAvailableRider(lng, lat, []);
-      if (!rider) {
-        throw new Error("No rider available nearby.");
-      }
-      assignedRiderId = rider._id as Types.ObjectId;
-      initialStatus = ShipmentStatus.AWAITING_RIDER_RESPONSE;
     }
 
     const createPayload: {
@@ -249,7 +248,7 @@ export class ShipmentService {
       userId: new Types.ObjectId(userId),
       status: initialStatus,
       deliveryType: data.deliveryType,
-      riderID: assignedRiderId,
+      riderID: null,
       price,
       paymentStatus: PaymentStatus.PENDING,
       timeline: [{ status: initialStatus, timestamp: new Date() }],
@@ -263,7 +262,6 @@ export class ShipmentService {
     if (data.deliveryType === DeliveryType.INSTANT && data.pickupLongitude != null && data.pickupLatitude != null) {
       createPayload.pickupLongitude = data.pickupLongitude;
       createPayload.pickupLatitude = data.pickupLatitude;
-      createPayload.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
       createPayload.declinedRiderIds = [];
     }
     const recLng = data.recipientLongitude;
@@ -306,18 +304,7 @@ export class ShipmentService {
       createPayload.pickupWindowStart = start;
       createPayload.pickupWindowEnd = new Date(data.pickupWindowEnd);
     }
-    try {
-      const shipment = await Shipment.create(createPayload);
-      if (assignedRiderId) {
-        void this.notifyRiderShipmentAssigned(assignedRiderId.toString(), shipment._id.toString());
-      }
-      return shipment;
-    } catch (err) {
-      if (assignedRiderId) {
-        await this.riderService.setRiderAvailable(assignedRiderId.toString(), true);
-      }
-      throw err;
-    }
+    return Shipment.create(createPayload);
   }
 
   /**
@@ -369,6 +356,7 @@ export class ShipmentService {
       riderID: Types.ObjectId | null;
       price: number;
       paymentStatus: string;
+      paidAt: Date;
       timeline: { status: string; timestamp: Date }[];
       senderDetails: typeof senderDetails;
       recipientDetails: typeof recipientDetails;
@@ -393,7 +381,8 @@ export class ShipmentService {
       deliveryType: data.deliveryType,
       riderID: null,
       price,
-      paymentStatus: PaymentStatus.PENDING,
+      paymentStatus: PaymentStatus.PAID,
+      paidAt: new Date(),
       timeline: [{ status: initialStatus, timestamp: new Date() }],
       senderDetails,
       recipientDetails,
@@ -862,5 +851,221 @@ export class ShipmentService {
       await this.riderService.setRiderAvailable(riderId, true);
       throw err;
     }
+  }
+
+  private async getShipmentForClient(shipmentId: string, userId: string): Promise<IShipment> {
+    const shipment = await Shipment.findById(shipmentId).exec();
+    if (!shipment) {
+      throw new Error("Shipment not found");
+    }
+    if (shipment.userId.toString() !== userId) {
+      throw new Error("Not authorized to access this shipment");
+    }
+    return shipment;
+  }
+
+  private expectedAmountKobo(priceNgn: number): number {
+    return Math.round(priceNgn * 100);
+  }
+
+  async initializeShipmentPayment(
+    shipmentId: string,
+    userId: string
+  ): Promise<{
+    accessCode: string;
+    reference: string;
+    amountKobo: number;
+    publicKey: string;
+    email: string;
+    alreadyPaid?: boolean;
+  }> {
+    const shipment = await this.getShipmentForClient(shipmentId, userId);
+    if (shipment.paymentStatus === PaymentStatus.PAID) {
+      throw new Error("Shipment is already paid");
+    }
+
+    const user = await User.findById(userId).select("email").lean().exec();
+    if (!user?.email) {
+      throw new Error("User email is required for payment");
+    }
+
+    const email = user.email.trim();
+    const amountKobo = this.expectedAmountKobo(shipment.price);
+    if (amountKobo < 1) {
+      throw new Error("Invalid shipment amount for payment");
+    }
+
+    if (shipment.paystackReference) {
+      try {
+        const prior = await verifyTransaction(shipment.paystackReference);
+        if (prior.status === "success" && prior.amountKobo === amountKobo) {
+          await this.markShipmentPaidAndFulfill(shipment._id.toString(), shipment.paystackReference);
+          return {
+            accessCode: "",
+            reference: shipment.paystackReference,
+            amountKobo,
+            publicKey: getPaystackPublicKey(),
+            email,
+            alreadyPaid: true,
+          };
+        }
+      } catch (e) {
+        logger.info("Prior Paystack reference not completed; starting new payment session", {
+          reference: shipment.paystackReference,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    const reference = generatePaymentReference(shipment._id.toString());
+    const init = await initializeTransaction({
+      email,
+      amountKobo,
+      reference,
+      metadata: {
+        shipmentId: shipment._id.toString(),
+        userId,
+      },
+    });
+
+    shipment.paystackReference = init.reference;
+    await shipment.save();
+
+    return {
+      accessCode: init.accessCode,
+      reference: init.reference,
+      amountKobo,
+      publicKey: getPaystackPublicKey(),
+      email,
+    };
+  }
+
+  async verifyShipmentPayment(shipmentId: string, userId: string, reference: string): Promise<IShipment> {
+    const shipment = await this.getShipmentForClient(shipmentId, userId);
+    if (!reference?.trim()) {
+      throw new Error("Payment reference is required");
+    }
+    if (shipment.paymentStatus === PaymentStatus.PAID) {
+      return shipment;
+    }
+
+    const verified = await verifyTransaction(reference);
+    if (verified.status !== "success") {
+      shipment.paymentStatus = PaymentStatus.FAILED;
+      await shipment.save();
+      throw new Error("Payment was not successful");
+    }
+
+    const expectedKobo = this.expectedAmountKobo(shipment.price);
+    if (verified.amountKobo !== expectedKobo) {
+      throw new Error("Payment amount does not match shipment price");
+    }
+
+    return this.markShipmentPaidAndFulfill(shipment._id.toString(), reference);
+  }
+
+  async markShipmentPaidAndFulfill(shipmentId: string, reference?: string): Promise<IShipment> {
+    const shipment = await Shipment.findById(shipmentId).exec();
+    if (!shipment) {
+      throw new Error("Shipment not found");
+    }
+
+    if (shipment.paymentStatus === PaymentStatus.PAID) {
+      if (shipment.deliveryType === DeliveryType.INSTANT && !shipment.riderID) {
+        await this.assignNearestRiderForInstant(shipment);
+        return (await Shipment.findById(shipmentId).exec()) as IShipment;
+      }
+      return shipment;
+    }
+
+    shipment.paymentStatus = PaymentStatus.PAID;
+    shipment.paidAt = new Date();
+    if (reference) {
+      shipment.paystackReference = reference;
+    }
+    await shipment.save();
+
+    if (shipment.deliveryType === DeliveryType.INSTANT) {
+      await this.assignNearestRiderForInstant(shipment);
+      const updated = await Shipment.findById(shipmentId).exec();
+      return updated ?? shipment;
+    }
+
+    return shipment;
+  }
+
+  private async assignNearestRiderForInstant(shipment: IShipment): Promise<void> {
+    if (shipment.deliveryType !== DeliveryType.INSTANT) return;
+    if (shipment.riderID) return;
+
+    const lng = shipment.pickupLongitude;
+    const lat = shipment.pickupLatitude;
+    if (lng === undefined || lat === undefined || Number.isNaN(lng) || Number.isNaN(lat)) {
+      throw new Error("Pickup coordinates are required to assign a rider");
+    }
+
+    const declined = shipment.declinedRiderIds ?? [];
+    const rider = await this.riderService.claimNearestAvailableRider(lng, lat, declined);
+    if (!rider) {
+      throw new Error("No rider available nearby. Please try again later.");
+    }
+
+    const riderId = rider._id as Types.ObjectId;
+    try {
+      shipment.riderID = riderId;
+      shipment.status = ShipmentStatus.AWAITING_RIDER_RESPONSE;
+      shipment.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
+      shipment.declinedRiderIds = declined;
+      shipment.timeline.push({
+        status: ShipmentStatus.AWAITING_RIDER_RESPONSE,
+        timestamp: new Date(),
+      });
+      await shipment.save();
+      void this.notifyRiderShipmentAssigned(riderId.toString(), shipment._id.toString());
+    } catch (err) {
+      await this.riderService.setRiderAvailable(riderId.toString(), true);
+      throw err;
+    }
+  }
+
+  async handlePaystackWebhook(event: {
+    event?: string;
+    data?: {
+      reference?: string;
+      amount?: number;
+      metadata?: { shipmentId?: string; userId?: string };
+    };
+  }): Promise<void> {
+    if (event.event !== "charge.success" || !event.data?.reference) {
+      return;
+    }
+
+    const reference = event.data.reference;
+    let shipment =
+      (await Shipment.findOne({ paystackReference: reference }).exec()) ??
+      (event.data.metadata?.shipmentId
+        ? await Shipment.findById(event.data.metadata.shipmentId).exec()
+        : null);
+
+    if (!shipment) {
+      logger.warn("Paystack webhook: shipment not found for reference", { reference });
+      return;
+    }
+
+    if (shipment.paymentStatus === PaymentStatus.PAID) {
+      return;
+    }
+
+    const expectedKobo = this.expectedAmountKobo(shipment.price);
+    if (event.data.amount != null && event.data.amount !== expectedKobo) {
+      logger.error("Paystack webhook: amount mismatch", {
+        reference,
+        expectedKobo,
+        received: event.data.amount,
+      });
+      return;
+    }
+
+    await this.markShipmentPaidAndFulfill(shipment._id.toString(), reference);
   }
 }

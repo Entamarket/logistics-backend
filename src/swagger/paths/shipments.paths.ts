@@ -22,7 +22,7 @@ export const shipmentPaths = {
   "/api/shipments": {
     post: {
       tags: ["Shipments"],
-      summary: "Create a shipment (client)",
+      summary: "Create a shipment (client; payment pending until Paystack succeeds)",
       security: cookieSecurity,
       requestBody: {
         required: true,
@@ -73,6 +73,67 @@ export const shipmentPaths = {
             },
           },
         },
+        "401": { description: "Unauthorized", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/shipments/{id}/payment/initialize": {
+    post: {
+      tags: ["Shipments"],
+      summary: "Initialize Paystack payment for a shipment",
+      security: cookieSecurity,
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      responses: {
+        "200": {
+          description: "Paystack initialize data for Inline popup",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: {
+                    type: "object",
+                    properties: {
+                      accessCode: { type: "string" },
+                      reference: { type: "string" },
+                      amountKobo: { type: "number", example: 615000 },
+                      publicKey: { type: "string" },
+                      email: { type: "string", format: "email" },
+                      alreadyPaid: { type: "boolean", description: "True when a prior reference was already successful" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "401": { description: "Unauthorized", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/shipments/{id}/payment/verify": {
+    post: {
+      tags: ["Shipments"],
+      summary: "Verify Paystack payment and fulfill shipment (assign rider if instant)",
+      security: cookieSecurity,
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["reference"],
+              properties: { reference: { type: "string" } },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": shipmentResponses["200"],
+        "400": { description: "Verification failed", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
         "401": { description: "Unauthorized", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
       },
     },

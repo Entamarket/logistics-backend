@@ -28,6 +28,7 @@ export const openApiSpec = {
     { name: "Feedback", description: "Post-delivery ratings" },
     { name: "Complaints", description: "Client and rider complaints" },
     { name: "Admin", description: "Admin dashboard APIs" },
+    { name: "Payments", description: "Paystack webhooks and payment flows" },
   ],
   paths: openApiPaths,
   components: swaggerComponents,

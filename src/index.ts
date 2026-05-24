@@ -7,10 +7,17 @@ import { setupMiddleware } from "./shared/middlewares/middleware";
 import { logger } from "./shared/lib/logger";
 import { ShipmentService } from "./modules/shipment/shipment.service";
 import { initWebSocketServer } from "./realtime/wsHub";
+import { paystackWebhook } from "./modules/payment/payment.webhook.controller";
 
 dotenv.config();
 
 const app = express();
+
+app.post(
+  "/api/webhooks/paystack",
+  express.raw({ type: "application/json" }),
+  (req, res) => void paystackWebhook(req, res)
+);
 
 // Setup middleware
 setupMiddleware(app);

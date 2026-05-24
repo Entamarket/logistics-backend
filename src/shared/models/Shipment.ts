@@ -52,6 +52,8 @@ export interface IShipment extends Document {
   riderID: Types.ObjectId | null;
   price: number;
   paymentStatus: string;
+  paystackReference?: string;
+  paidAt?: Date;
   timeline: ITimelineEntry[];
   senderDetails: ISenderDetails;
   recipientDetails: IRecipientDetails;
@@ -145,6 +147,8 @@ const shipmentSchema = new Schema<IShipment>(
       enum: Object.values(PaymentStatus),
       default: PaymentStatus.PENDING,
     },
+    paystackReference: { type: String, trim: true, sparse: true, unique: true },
+    paidAt: { type: Date },
     timeline: {
       type: [timelineEntrySchema],
       default: [],
