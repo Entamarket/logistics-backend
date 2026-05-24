@@ -11,6 +11,9 @@ router.use(adminMiddleware);
 
 router.get("/revenue", (req, res) => adminController.revenueSummary(req as AuthRequest, res));
 router.get("/financial-reports", (req, res) => adminController.financialReports(req as AuthRequest, res));
+router.get("/financial-reports/:yearMonth", (req, res) =>
+  adminController.financialReportMonth(req as AuthRequest, res)
+);
 router.get("/available-riders", (req, res) => adminController.listAvailableRiders(req as AuthRequest, res));
 router.get("/shipments", (req, res) => adminController.listShipments(req as AuthRequest, res));
 router.post("/shipments/bulk", (req, res) => adminController.bulkCreateShipments(req as AuthRequest, res));

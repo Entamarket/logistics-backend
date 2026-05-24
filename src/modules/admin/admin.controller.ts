@@ -21,12 +21,43 @@ export class AdminController {
 
   async financialReports(req: AuthRequest, res: Response): Promise<void> {
     try {
+      const rawYear = typeof req.query.year === "string" ? parseInt(req.query.year, 10) : NaN;
+      if (Number.isFinite(rawYear)) {
+        if (rawYear < 2000 || rawYear > 2100) {
+          res.status(400).json({ success: false, message: "year must be between 2000 and 2100" });
+          return;
+        }
+        const data = await adminService.getFinancialReports({ year: rawYear });
+        res.status(200).json({ success: true, data });
+        return;
+      }
+
       const raw = typeof req.query.months === "string" ? parseInt(req.query.months, 10) : 12;
       const months = Number.isFinite(raw) ? Math.min(Math.max(raw, 3), 36) : 12;
-      const data = await adminService.getFinancialReports(months);
+      const data = await adminService.getFinancialReports({ monthCount: months });
       res.status(200).json({ success: true, data });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Error fetching financial reports";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
+  async financialReportMonth(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const yearMonth = typeof req.params.yearMonth === "string" ? req.params.yearMonth.trim() : "";
+      if (!yearMonth) {
+        res.status(400).json({ success: false, message: "yearMonth is required (YYYY-MM)" });
+        return;
+      }
+      const data = await adminService.getFinancialReportMonth(yearMonth);
+      if (!data) {
+        res.status(400).json({ success: false, message: "Invalid yearMonth; use YYYY-MM with month 01–12" });
+        return;
+      }
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Error fetching monthly financial report";
       res.status(500).json({ success: false, message });
     }
   }

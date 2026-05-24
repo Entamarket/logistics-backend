@@ -39,12 +39,42 @@ export interface FinancialReportsDto {
   currency: "NGN";
   generatedAt: string;
   monthCount: number;
+  /** Set when the report is scoped to a calendar year (`?year=`). */
+  year?: number;
+  availableYears: number[];
   allTimeRevenue: number;
   allTimeDeliveredCount: number;
   periodTotalRevenue: number;
   periodTotalDelivered: number;
   periodAverageMonthlyRevenue: number;
   monthly: MonthlyFinancialReportDto[];
+}
+
+export interface GetFinancialReportsOptions {
+  year?: number;
+  monthCount?: number;
+}
+
+export interface MonthlyFinancialDeliveryDto {
+  id: string;
+  price: number;
+  paymentStatus: string;
+  deliveryType: string;
+  deliveredAt: string;
+  createdAt: string;
+  senderName: string;
+  recipientName: string;
+  client: { id: string; firstName: string; lastName: string; email: string };
+  rider: AdminRiderDto | null;
+}
+
+export interface MonthlyFinancialReportDetailDto {
+  yearMonth: string;
+  label: string;
+  revenue: number;
+  deliveredCount: number;
+  averageOrderValue: number;
+  deliveries: MonthlyFinancialDeliveryDto[];
 }
 
 export interface AdminClientDto {
@@ -389,6 +419,17 @@ function deliveredAtFromDoc(row: LeanShipment): Date {
   return row.updatedAt ? new Date(row.updatedAt) : new Date();
 }
 
+const YEAR_MONTH_RE = /^(\d{4})-(\d{2})$/;
+
+export function parseYearMonth(value: string): { year: number; month: number } | null {
+  const m = YEAR_MONTH_RE.exec(value.trim());
+  if (!m) return null;
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10);
+  if (month < 1 || month > 12) return null;
+  return { year, month };
+}
+
 export class AdminService {
   private riderService = new RiderService();
   private shipmentService = new ShipmentService();
@@ -452,8 +493,9 @@ export class AdminService {
 
   /**
    * Monthly financial report: revenue and delivery counts per calendar month.
+   * Pass `year` for Jan–Dec of a calendar year, or `monthCount` for a rolling window.
    */
-  async getFinancialReports(monthCount: number): Promise<FinancialReportsDto> {
+  async getFinancialReports(options: GetFinancialReportsOptions = {}): Promise<FinancialReportsDto> {
     const rows = (await Shipment.find({ status: ShipmentStatus.DELIVERED })
       .select("price timeline updatedAt")
       .lean()
@@ -462,24 +504,29 @@ export class AdminService {
     let allTimeRevenue = 0;
     const revenueByMonth = new Map<string, number>();
     const countByMonth = new Map<string, number>();
+    const yearsSet = new Set<number>();
+
+    const now = new Date();
+    yearsSet.add(now.getFullYear());
 
     for (const row of rows) {
       const price = typeof row.price === "number" && !Number.isNaN(row.price) ? row.price : 0;
       allTimeRevenue += price;
       const t = deliveredAtFromDoc(row);
+      yearsSet.add(t.getFullYear());
       const key = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}`;
       revenueByMonth.set(key, (revenueByMonth.get(key) || 0) + price);
       countByMonth.set(key, (countByMonth.get(key) || 0) + 1);
     }
 
-    const now = new Date();
+    const availableYears = [...yearsSet].sort((a, b) => b - a);
+
     const monthly: MonthlyFinancialReportDto[] = [];
     let periodTotalRevenue = 0;
     let periodTotalDelivered = 0;
     let previousRevenue: number | null = null;
 
-    for (let i = monthCount - 1; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const buildMonthEntry = (d: Date): MonthlyFinancialReportDto => {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const label = d.toLocaleString(undefined, { month: "long", year: "numeric" });
       const revenue = revenueByMonth.get(key) || 0;
@@ -497,24 +544,59 @@ export class AdminService {
               : 0;
       }
 
-      monthly.push({
+      previousRevenue = revenue;
+      periodTotalRevenue += revenue;
+      periodTotalDelivered += deliveredCount;
+
+      return {
         yearMonth: key,
         label,
         revenue,
         deliveredCount,
         averageOrderValue,
         changeFromPreviousPct,
-      });
+      };
+    };
 
-      periodTotalRevenue += revenue;
-      periodTotalDelivered += deliveredCount;
-      previousRevenue = revenue;
+    if (options.year !== undefined) {
+      const calendarYear = options.year;
+      previousRevenue = null;
+      periodTotalRevenue = 0;
+      periodTotalDelivered = 0;
+
+      for (let m = 0; m < 12; m++) {
+        monthly.push(buildMonthEntry(new Date(calendarYear, m, 1)));
+      }
+
+      return {
+        currency: "NGN",
+        generatedAt: new Date().toISOString(),
+        monthCount: 12,
+        year: calendarYear,
+        availableYears,
+        allTimeRevenue,
+        allTimeDeliveredCount: rows.length,
+        periodTotalRevenue,
+        periodTotalDelivered,
+        periodAverageMonthlyRevenue: Math.round(periodTotalRevenue / 12),
+        monthly,
+      };
+    }
+
+    const monthCount = options.monthCount ?? 12;
+    previousRevenue = null;
+    periodTotalRevenue = 0;
+    periodTotalDelivered = 0;
+
+    for (let i = monthCount - 1; i >= 0; i--) {
+      monthly.push(buildMonthEntry(new Date(now.getFullYear(), now.getMonth() - i, 1)));
     }
 
     return {
       currency: "NGN",
       generatedAt: new Date().toISOString(),
       monthCount,
+      availableYears,
       allTimeRevenue,
       allTimeDeliveredCount: rows.length,
       periodTotalRevenue,
@@ -522,6 +604,75 @@ export class AdminService {
       periodAverageMonthlyRevenue:
         monthCount > 0 ? Math.round(periodTotalRevenue / monthCount) : 0,
       monthly,
+    };
+  }
+
+  /**
+   * Delivered shipments for a single calendar month (same delivery-date bucketing as getFinancialReports).
+   */
+  async getFinancialReportMonth(yearMonth: string): Promise<MonthlyFinancialReportDetailDto | null> {
+    const parsed = parseYearMonth(yearMonth);
+    if (!parsed) return null;
+
+    const { year, month } = parsed;
+    const labelDate = new Date(year, month - 1, 1);
+    const label = labelDate.toLocaleString(undefined, { month: "long", year: "numeric" });
+
+    const rows = (await Shipment.find({ status: ShipmentStatus.DELIVERED })
+      .select("price paymentStatus deliveryType timeline updatedAt createdAt senderDetails recipientDetails userId riderID")
+      .populate(shipmentPopulate)
+      .lean()
+      .exec()) as unknown as PopulatedShipmentDoc[];
+
+    const deliveries: MonthlyFinancialDeliveryDto[] = [];
+
+    for (const row of rows) {
+      const deliveredAt = deliveredAtFromDoc(row as LeanShipment);
+      const key = `${deliveredAt.getFullYear()}-${String(deliveredAt.getMonth() + 1).padStart(2, "0")}`;
+      if (key !== yearMonth) continue;
+
+      const user = row.userId;
+      let client = { id: "", firstName: "", lastName: "", email: "" };
+      if (isPopulatedUser(user)) {
+        client = {
+          id: user._id.toString(),
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+        };
+      } else if (user) {
+        client = { id: String(user), firstName: "", lastName: "", email: "" };
+      }
+
+      const price = typeof row.price === "number" && !Number.isNaN(row.price) ? row.price : 0;
+
+      deliveries.push({
+        id: row._id.toString(),
+        price,
+        paymentStatus: row.paymentStatus,
+        deliveryType: row.deliveryType,
+        deliveredAt: deliveredAt.toISOString(),
+        createdAt: new Date(row.createdAt).toISOString(),
+        senderName: row.senderDetails?.fullName ?? "—",
+        recipientName: row.recipientDetails?.fullName ?? "—",
+        client,
+        rider: mapRider(row.riderID),
+      });
+    }
+
+    deliveries.sort((a, b) => new Date(b.deliveredAt).getTime() - new Date(a.deliveredAt).getTime());
+
+    const revenue = deliveries.reduce((sum, d) => sum + d.price, 0);
+    const deliveredCount = deliveries.length;
+    const averageOrderValue = deliveredCount > 0 ? Math.round(revenue / deliveredCount) : 0;
+
+    return {
+      yearMonth,
+      label,
+      revenue,
+      deliveredCount,
+      averageOrderValue,
+      deliveries,
     };
   }
 

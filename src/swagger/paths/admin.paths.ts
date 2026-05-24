@@ -40,10 +40,16 @@ export const adminPaths = {
       security: cookieSecurity,
       parameters: [
         {
+          name: "year",
+          in: "query",
+          schema: { type: "integer", minimum: 2000, maximum: 2100, example: 2026 },
+          description: "Calendar year (Jan–Dec). Takes precedence over months when set.",
+        },
+        {
           name: "months",
           in: "query",
           schema: { type: "integer", default: 12, minimum: 3, maximum: 36 },
-          description: "Number of calendar months to include",
+          description: "Rolling window length when year is omitted",
         },
       ],
       responses: {
@@ -60,6 +66,47 @@ export const adminPaths = {
               },
             },
           },
+        },
+        "400": {
+          description: "Invalid year",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "403": { description: "Admin access required", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/admin/financial-reports/{yearMonth}": {
+    get: {
+      tags: ["Admin"],
+      summary: "Monthly financial report deliveries (admin)",
+      security: cookieSecurity,
+      parameters: [
+        {
+          name: "yearMonth",
+          in: "path",
+          required: true,
+          schema: { type: "string", pattern: "^\\d{4}-\\d{2}$", example: "2026-05" },
+          description: "Calendar month in YYYY-MM format",
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Delivered shipments for the given month",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/MonthlyFinancialReportDetail" },
+                },
+              },
+            },
+          },
+        },
+        "400": {
+          description: "Invalid yearMonth",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
         },
         "403": { description: "Admin access required", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
       },
