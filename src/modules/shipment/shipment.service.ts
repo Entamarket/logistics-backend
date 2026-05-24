@@ -12,8 +12,16 @@ import { User } from "../../shared/models/User";
 import { RiderService } from "../rider/rider.service";
 import { NotificationService } from "../notification/notification.service";
 import { logger } from "../../shared/lib/logger";
+import { normalizeContactDetails, type ContactDetailsInput } from "../../shared/lib/nigeria-locations";
+import {
+  computeShipmentPrice,
+  formatContactAddress,
+  parsePackageDimensions,
+  type ShipmentPriceBreakdown,
+} from "../../shared/lib/shipment-pricing";
+import { drivingDistanceMeters, geocodeAddress } from "../../shared/lib/google-maps.service";
 
-const PRICE_PER_KG = 500;
+export type { ShipmentPriceBreakdown };
 const RIDER_RESPONSE_WINDOW_MS = 3 * 60 * 1000;
 
 function uniqueRiderObjectIds(ids: Types.ObjectId[]): Types.ObjectId[] {
@@ -36,18 +44,29 @@ export interface CreateShipmentBody {
   /** Pickup point for nearest-rider matching (WGS84). Required for instant delivery. */
   pickupLongitude?: number;
   pickupLatitude?: number;
-  senderDetails: { fullName: string; address: string; phone: string };
-  recipientDetails: { fullName: string; address: string; phone: string };
+  senderDetails: ContactDetailsInput;
+  recipientDetails: ContactDetailsInput;
   packageDetails: {
     type: string;
     weight: number;
-    dimensions: number;
+    lengthCm: number;
+    widthCm: number;
+    heightCm: number;
     quantity: number;
     note?: string;
   };
   /** Optional drop-off coordinates for maps. */
   recipientLongitude?: number;
   recipientLatitude?: number;
+}
+
+export interface EstimateShipmentPriceBody {
+  senderDetails: ContactDetailsInput;
+  recipientDetails: ContactDetailsInput;
+  weight: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
 }
 
 export interface ShipmentTrackingDto {
@@ -120,6 +139,41 @@ export class ShipmentService {
     }
   }
 
+  async estimateShipmentPrice(data: EstimateShipmentPriceBody): Promise<ShipmentPriceBreakdown> {
+    const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
+    const recipientDetails = normalizeContactDetails(data.recipientDetails, "Recipient");
+    const weightKg = Number(data.weight);
+    if (!Number.isFinite(weightKg) || weightKg < 0) {
+      throw new Error("weight must be a non-negative number");
+    }
+    const dims = parsePackageDimensions(data.lengthCm, data.widthCm, data.heightCm);
+
+    const origin = await geocodeAddress(formatContactAddress(senderDetails));
+    const destination = await geocodeAddress(formatContactAddress(recipientDetails));
+    const distanceMeters = await drivingDistanceMeters(origin, destination);
+    return computeShipmentPrice(
+      distanceMeters,
+      weightKg,
+      dims.lengthCm,
+      dims.widthCm,
+      dims.heightCm
+    );
+  }
+
+  async resolveShipmentPrice(
+    senderDetails: { address: string; state: string; country: string },
+    recipientDetails: { address: string; state: string; country: string },
+    weightKg: number,
+    lengthCm: number,
+    widthCm: number,
+    heightCm: number
+  ): Promise<number> {
+    const origin = await geocodeAddress(formatContactAddress(senderDetails));
+    const destination = await geocodeAddress(formatContactAddress(recipientDetails));
+    const distanceMeters = await drivingDistanceMeters(origin, destination);
+    return computeShipmentPrice(distanceMeters, weightKg, lengthCm, widthCm, heightCm).total;
+  }
+
   async createShipment(userId: string, data: CreateShipmentBody): Promise<IShipment> {
     const clientUser = await User.findById(userId).select("status role").lean().exec();
     if (!clientUser) {
@@ -132,9 +186,19 @@ export class ShipmentService {
       }
     }
 
+    const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
+    const recipientDetails = normalizeContactDetails(data.recipientDetails, "Recipient");
+
     let initialStatus =
       data.deliveryType === DeliveryType.SCHEDULED ? ShipmentStatus.SCHEDULED : ShipmentStatus.PENDING;
-    const price = Math.round(data.packageDetails.weight * PRICE_PER_KG);
+    const price = await this.resolveShipmentPrice(
+      senderDetails,
+      recipientDetails,
+      data.packageDetails.weight,
+      data.packageDetails.lengthCm,
+      data.packageDetails.widthCm,
+      data.packageDetails.heightCm
+    );
 
     let assignedRiderId: Types.ObjectId | null = null;
     if (data.deliveryType === DeliveryType.INSTANT) {
@@ -162,9 +226,17 @@ export class ShipmentService {
       price: number;
       paymentStatus: string;
       timeline: { status: string; timestamp: Date }[];
-      senderDetails: typeof data.senderDetails;
-      recipientDetails: typeof data.recipientDetails;
-      packageDetails: { type: string; weight: number; dimensions: number; quantity: number; note: string };
+      senderDetails: typeof senderDetails;
+      recipientDetails: typeof recipientDetails;
+      packageDetails: {
+        type: string;
+        weight: number;
+        lengthCm: number;
+        widthCm: number;
+        heightCm: number;
+        quantity: number;
+        note: string;
+      };
       pickupWindowStart?: Date;
       pickupWindowEnd?: Date;
       pickupLongitude?: number;
@@ -181,8 +253,8 @@ export class ShipmentService {
       price,
       paymentStatus: PaymentStatus.PENDING,
       timeline: [{ status: initialStatus, timestamp: new Date() }],
-      senderDetails: data.senderDetails,
-      recipientDetails: data.recipientDetails,
+      senderDetails,
+      recipientDetails,
       packageDetails: {
         ...data.packageDetails,
         note: data.packageDetails.note ?? "",
@@ -265,9 +337,19 @@ export class ShipmentService {
       throw new Error("This client account cannot create shipments.");
     }
 
+    const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
+    const recipientDetails = normalizeContactDetails(data.recipientDetails, "Recipient");
+
     const initialStatus =
       data.deliveryType === DeliveryType.SCHEDULED ? ShipmentStatus.SCHEDULED : ShipmentStatus.PENDING;
-    const price = Math.round(data.packageDetails.weight * PRICE_PER_KG);
+    const price = await this.resolveShipmentPrice(
+      senderDetails,
+      recipientDetails,
+      data.packageDetails.weight,
+      data.packageDetails.lengthCm,
+      data.packageDetails.widthCm,
+      data.packageDetails.heightCm
+    );
 
     if (data.deliveryType === DeliveryType.INSTANT) {
       const lng = data.pickupLongitude;
@@ -288,9 +370,17 @@ export class ShipmentService {
       price: number;
       paymentStatus: string;
       timeline: { status: string; timestamp: Date }[];
-      senderDetails: typeof data.senderDetails;
-      recipientDetails: typeof data.recipientDetails;
-      packageDetails: { type: string; weight: number; dimensions: number; quantity: number; note: string };
+      senderDetails: typeof senderDetails;
+      recipientDetails: typeof recipientDetails;
+      packageDetails: {
+        type: string;
+        weight: number;
+        lengthCm: number;
+        widthCm: number;
+        heightCm: number;
+        quantity: number;
+        note: string;
+      };
       pickupWindowStart?: Date;
       pickupWindowEnd?: Date;
       pickupLongitude?: number;
@@ -305,8 +395,8 @@ export class ShipmentService {
       price,
       paymentStatus: PaymentStatus.PENDING,
       timeline: [{ status: initialStatus, timestamp: new Date() }],
-      senderDetails: data.senderDetails,
-      recipientDetails: data.recipientDetails,
+      senderDetails,
+      recipientDetails,
       packageDetails: {
         ...data.packageDetails,
         note: data.packageDetails.note ?? "",

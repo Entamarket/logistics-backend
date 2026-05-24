@@ -113,12 +113,26 @@ export interface AdminShipmentListItem {
 }
 
 export interface AdminShipmentDetail extends AdminShipmentListItem {
-  senderDetails: { fullName: string; address: string; phone: string };
-  recipientDetails: { fullName: string; address: string; phone: string };
+  senderDetails: {
+    fullName: string;
+    address: string;
+    phone: string;
+    country?: string;
+    state?: string;
+  };
+  recipientDetails: {
+    fullName: string;
+    address: string;
+    phone: string;
+    country?: string;
+    state?: string;
+  };
   packageDetails: {
     type: string;
     weight: number;
-    dimensions: number;
+    lengthCm: number;
+    widthCm: number;
+    heightCm: number;
     quantity: number;
     note?: string;
   };

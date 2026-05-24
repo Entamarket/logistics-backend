@@ -77,6 +77,64 @@ export const shipmentPaths = {
       },
     },
   },
+  "/api/shipments/estimate-price": {
+    post: {
+      tags: ["Shipments"],
+      summary: "Estimate shipment price (base + distance + weight + volume tier)",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["senderDetails", "recipientDetails", "weight", "lengthCm", "widthCm", "heightCm"],
+              properties: {
+                senderDetails: { $ref: "#/components/schemas/ContactDetails" },
+                recipientDetails: { $ref: "#/components/schemas/ContactDetails" },
+                weight: { type: "number", minimum: 0, example: 7 },
+                lengthCm: { type: "number", minimum: 0, example: 30 },
+                widthCm: { type: "number", minimum: 0, example: 30 },
+                heightCm: { type: "number", minimum: 0, example: 30 },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Price breakdown",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: {
+                    type: "object",
+                    properties: {
+                      currency: { type: "string", example: "NGN" },
+                      baseFee: { type: "number", example: 1500 },
+                      distanceMeters: { type: "number", example: 8500 },
+                      distanceKm: { type: "number", example: 9 },
+                      distanceFee: { type: "number", example: 1350 },
+                      weightFee: { type: "number", example: 0 },
+                      volumeCm3: { type: "number", example: 27000 },
+                      dimensionCategory: { type: "string", enum: ["small", "medium", "large", "extraLarge"], example: "medium" },
+                      dimensionFee: { type: "number", example: 500 },
+                      total: { type: "number", example: 3350 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Validation or geocoding error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "401": { description: "Unauthorized", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
   "/api/shipments/rider/me": {
     get: {
       tags: ["Shipments"],

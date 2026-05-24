@@ -21,6 +21,10 @@ router.get("/rider/me/address-book", authMiddleware, (req, res) =>
   shipmentController.getRiderAddressBook(req as AuthRequest, res)
 );
 
+router.post("/estimate-price", authMiddleware, (req, res) =>
+  shipmentController.estimateShipmentPrice(req as AuthRequest, res)
+);
+
 router.get("/:id/tracking", authMiddleware, (req, res) =>
   shipmentController.getTracking(req as AuthRequest, res)
 );

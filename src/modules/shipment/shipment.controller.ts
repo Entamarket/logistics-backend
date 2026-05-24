@@ -5,6 +5,53 @@ import { AuthRequest } from "../../shared/middlewares/auth.middleware";
 const shipmentService = new ShipmentService();
 
 export class ShipmentController {
+  async estimateShipmentPrice(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+
+      const { senderDetails, recipientDetails, weight, lengthCm, widthCm, heightCm } = req.body ?? {};
+      if (!senderDetails || !recipientDetails) {
+        res.status(400).json({
+          success: false,
+          message: "senderDetails and recipientDetails are required",
+        });
+        return;
+      }
+      if (weight === undefined || weight === null || weight === "") {
+        res.status(400).json({ success: false, message: "weight is required" });
+        return;
+      }
+      if (lengthCm === undefined || widthCm === undefined || heightCm === undefined) {
+        res.status(400).json({
+          success: false,
+          message: "lengthCm, widthCm, and heightCm are required",
+        });
+        return;
+      }
+
+      const breakdown = await shipmentService.estimateShipmentPrice({
+        senderDetails,
+        recipientDetails,
+        weight: Number(weight),
+        lengthCm: Number(lengthCm),
+        widthCm: Number(widthCm),
+        heightCm: Number(heightCm),
+      });
+
+      res.status(200).json({
+        success: true,
+        data: breakdown,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error estimating shipment price";
+      res.status(400).json({ success: false, message });
+    }
+  }
+
   async createShipment(req: AuthRequest, res: Response): Promise<void> {
     try {
       const {

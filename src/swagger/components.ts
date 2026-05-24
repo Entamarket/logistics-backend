@@ -25,20 +25,24 @@ export const swaggerComponents = {
     },
     ContactDetails: {
       type: "object",
-      required: ["fullName", "address", "phone"],
+      required: ["fullName", "address", "phone", "country", "state"],
       properties: {
         fullName: { type: "string", example: "Ada Okafor" },
-        address: { type: "string", example: "12 Admiralty Way, Lekki, Lagos" },
+        address: { type: "string", example: "12 Admiralty Way, Lekki" },
         phone: { type: "string", example: "+2348012345678" },
+        country: { type: "string", example: "NG", description: "ISO 3166-1 alpha-2 country code" },
+        state: { type: "string", example: "Lagos", description: "Nigerian state name" },
       },
     },
     PackageDetails: {
       type: "object",
-      required: ["type", "weight", "dimensions", "quantity"],
+      required: ["type", "weight", "lengthCm", "widthCm", "heightCm", "quantity"],
       properties: {
         type: { type: "string", example: "parcel" },
         weight: { type: "number", example: 2.5 },
-        dimensions: { type: "number", example: 40 },
+        lengthCm: { type: "number", minimum: 0, example: 30, description: "Package length in cm" },
+        widthCm: { type: "number", minimum: 0, example: 20, description: "Package width in cm" },
+        heightCm: { type: "number", minimum: 0, example: 15, description: "Package height in cm" },
         quantity: { type: "integer", example: 1 },
         note: { type: "string", example: "Handle with care" },
       },

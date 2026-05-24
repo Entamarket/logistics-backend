@@ -5,18 +5,25 @@ export interface ISenderDetails {
   fullName: string;
   address: string;
   phone: string;
+  /** ISO 3166-1 alpha-2 country code (e.g. NG). */
+  country?: string;
+  state?: string;
 }
 
 export interface IRecipientDetails {
   fullName: string;
   address: string;
   phone: string;
+  country?: string;
+  state?: string;
 }
 
 export interface IPackageDetails {
   type: string;
   weight: number;
-  dimensions: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
   quantity: number;
   note?: string;
 }
@@ -58,6 +65,8 @@ const senderDetailsSchema = new Schema<ISenderDetails>(
     fullName: { type: String, required: [true, "Sender full name is required"], trim: true },
     address: { type: String, required: [true, "Sender address is required"], trim: true },
     phone: { type: String, required: [true, "Sender phone is required"], trim: true },
+    country: { type: String, trim: true, uppercase: true, default: "NG" },
+    state: { type: String, trim: true, default: "" },
   },
   { _id: false }
 );
@@ -67,6 +76,8 @@ const recipientDetailsSchema = new Schema<IRecipientDetails>(
     fullName: { type: String, required: [true, "Recipient full name is required"], trim: true },
     address: { type: String, required: [true, "Recipient address is required"], trim: true },
     phone: { type: String, required: [true, "Recipient phone is required"], trim: true },
+    country: { type: String, trim: true, uppercase: true, default: "NG" },
+    state: { type: String, trim: true, default: "" },
   },
   { _id: false }
 );
@@ -75,7 +86,9 @@ const packageDetailsSchema = new Schema<IPackageDetails>(
   {
     type: { type: String, required: [true, "Package type is required"], trim: true },
     weight: { type: Number, required: [true, "Weight is required"], min: 0 },
-    dimensions: { type: Number, required: [true, "Dimensions are required"], min: 0 },
+    lengthCm: { type: Number, required: [true, "Length is required"], min: 0 },
+    widthCm: { type: Number, required: [true, "Width is required"], min: 0 },
+    heightCm: { type: Number, required: [true, "Height is required"], min: 0 },
     quantity: { type: Number, required: [true, "Quantity is required"], min: 1 },
     note: { type: String, trim: true, default: "" },
   },
