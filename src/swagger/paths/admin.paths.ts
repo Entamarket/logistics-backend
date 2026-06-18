@@ -151,6 +151,8 @@ export const adminPaths = {
     post: {
       tags: ["Admin"],
       summary: "Bulk create shipments for a client and assign riders",
+      description:
+        "Each instant shipment may omit pickup coordinates; the sender address is geocoded when needed for rider matching.",
       security: cookieSecurity,
       requestBody: {
         required: true,
@@ -176,8 +178,22 @@ export const adminPaths = {
                       packageDetails: { $ref: "#/components/schemas/PackageDetails" },
                       pickupWindowStart: { type: "string", format: "date-time" },
                       pickupWindowEnd: { type: "string", format: "date-time" },
-                      pickupLongitude: { type: "number" },
-                      pickupLatitude: { type: "number" },
+                      pickupLongitude: {
+                        type: "number",
+                        description: "Optional for instant rows; geocoded sender address used when omitted",
+                      },
+                      pickupLatitude: {
+                        type: "number",
+                        description: "Optional for instant rows; must be sent with pickupLongitude when provided",
+                      },
+                      recipientLongitude: {
+                        type: "number",
+                        description: "Optional drop-off longitude; must be sent with recipientLatitude",
+                      },
+                      recipientLatitude: {
+                        type: "number",
+                        description: "Optional drop-off latitude; must be sent with recipientLongitude",
+                      },
                     },
                   },
                 },

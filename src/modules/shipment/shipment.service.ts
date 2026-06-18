@@ -145,6 +145,65 @@ export class ShipmentService {
     }
   }
 
+  private hasValidPickupCoordinates(shipment: {
+    pickupLongitude?: number;
+    pickupLatitude?: number;
+  }): boolean {
+    const lng = shipment.pickupLongitude;
+    const lat = shipment.pickupLatitude;
+    return (
+      lng !== undefined &&
+      lat !== undefined &&
+      !Number.isNaN(lng) &&
+      !Number.isNaN(lat) &&
+      lng >= -180 &&
+      lng <= 180 &&
+      lat >= -90 &&
+      lat <= 90
+    );
+  }
+
+  private validateOptionalPickupCoordinates(lng?: number, lat?: number): void {
+    const hasLng = lng !== undefined && lng !== null && !Number.isNaN(Number(lng));
+    const hasLat = lat !== undefined && lat !== null && !Number.isNaN(Number(lat));
+    if (hasLng !== hasLat) {
+      throw new Error("pickupLongitude and pickupLatitude must both be provided together.");
+    }
+    if (hasLng && hasLat) {
+      const longitude = Number(lng);
+      const latitude = Number(lat);
+      if (longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90) {
+        throw new Error("Invalid pickup coordinates.");
+      }
+    }
+  }
+
+  /** GPS coords on the shipment if set; otherwise geocode sender address for rider matching. */
+  private async resolvePickupCoordinatesForMatching(
+    shipment: IShipment,
+    options?: { persistGeocoded?: boolean }
+  ): Promise<{ longitude: number; latitude: number }> {
+    if (this.hasValidPickupCoordinates(shipment)) {
+      return {
+        longitude: shipment.pickupLongitude as number,
+        latitude: shipment.pickupLatitude as number,
+      };
+    }
+
+    const sender = shipment.senderDetails;
+    if (!sender?.address?.trim()) {
+      throw new Error("Pickup coordinates or a complete sender address is required to assign a rider.");
+    }
+
+    const point = await geocodeAddress(formatContactAddress(sender));
+    if (options?.persistGeocoded) {
+      shipment.pickupLongitude = point.lng;
+      shipment.pickupLatitude = point.lat;
+    }
+
+    return { longitude: point.lng, latitude: point.lat };
+  }
+
   async estimateShipmentPrice(data: EstimateShipmentPriceBody): Promise<ShipmentPriceBreakdown> {
     const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
     const recipientDetails = normalizeContactDetails(data.recipientDetails, "Recipient");
@@ -207,14 +266,7 @@ export class ShipmentService {
     );
 
     if (data.deliveryType === DeliveryType.INSTANT) {
-      const lng = data.pickupLongitude;
-      const lat = data.pickupLatitude;
-      if (lng === undefined || lat === undefined || Number.isNaN(lng) || Number.isNaN(lat)) {
-        throw new Error("pickupLongitude and pickupLatitude are required for instant delivery.");
-      }
-      if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
-        throw new Error("Invalid pickup coordinates.");
-      }
+      this.validateOptionalPickupCoordinates(data.pickupLongitude, data.pickupLatitude);
     }
 
     const createPayload: {
@@ -259,10 +311,12 @@ export class ShipmentService {
         note: data.packageDetails.note ?? "",
       },
     };
-    if (data.deliveryType === DeliveryType.INSTANT && data.pickupLongitude != null && data.pickupLatitude != null) {
-      createPayload.pickupLongitude = data.pickupLongitude;
-      createPayload.pickupLatitude = data.pickupLatitude;
+    if (data.deliveryType === DeliveryType.INSTANT) {
       createPayload.declinedRiderIds = [];
+      if (this.hasValidPickupCoordinates(data)) {
+        createPayload.pickupLongitude = data.pickupLongitude;
+        createPayload.pickupLatitude = data.pickupLatitude;
+      }
     }
     const recLng = data.recipientLongitude;
     const recLat = data.recipientLatitude;
@@ -339,14 +393,7 @@ export class ShipmentService {
     );
 
     if (data.deliveryType === DeliveryType.INSTANT) {
-      const lng = data.pickupLongitude;
-      const lat = data.pickupLatitude;
-      if (lng === undefined || lat === undefined || Number.isNaN(lng) || Number.isNaN(lat)) {
-        throw new Error("pickupLongitude and pickupLatitude are required for instant delivery.");
-      }
-      if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
-        throw new Error("Invalid pickup coordinates.");
-      }
+      this.validateOptionalPickupCoordinates(data.pickupLongitude, data.pickupLatitude);
     }
 
     const createPayload: {
@@ -392,7 +439,7 @@ export class ShipmentService {
       },
     };
 
-    if (data.deliveryType === DeliveryType.INSTANT && data.pickupLongitude != null && data.pickupLatitude != null) {
+    if (data.deliveryType === DeliveryType.INSTANT && this.hasValidPickupCoordinates(data)) {
       createPayload.pickupLongitude = data.pickupLongitude;
       createPayload.pickupLatitude = data.pickupLatitude;
     }
@@ -496,17 +543,9 @@ export class ShipmentService {
     const excludeIds = uniqueRiderObjectIds([...previousDeclined, currentId]);
     shipment.declinedRiderIds = excludeIds;
 
-    const lng = shipment.pickupLongitude;
-    const lat = shipment.pickupLatitude;
-
-    if (lng === undefined || lat === undefined || Number.isNaN(lng) || Number.isNaN(lat)) {
-      shipment.riderID = null;
-      shipment.status = ShipmentStatus.SEARCHING_RIDER;
-      shipment.riderResponseDeadline = undefined;
-      shipment.timeline.push({ status: ShipmentStatus.SEARCHING_RIDER, timestamp: new Date() });
-      await shipment.save();
-      return shipment;
-    }
+    const { longitude: lng, latitude: lat } = await this.resolvePickupCoordinatesForMatching(shipment, {
+      persistGeocoded: true,
+    });
 
     const nextRider = await this.riderService.claimNearestAvailableRider(lng, lat, excludeIds);
     if (!nextRider) {
@@ -998,11 +1037,9 @@ export class ShipmentService {
     if (shipment.deliveryType !== DeliveryType.INSTANT) return;
     if (shipment.riderID) return;
 
-    const lng = shipment.pickupLongitude;
-    const lat = shipment.pickupLatitude;
-    if (lng === undefined || lat === undefined || Number.isNaN(lng) || Number.isNaN(lat)) {
-      throw new Error("Pickup coordinates are required to assign a rider");
-    }
+    const { longitude: lng, latitude: lat } = await this.resolvePickupCoordinatesForMatching(shipment, {
+      persistGeocoded: true,
+    });
 
     const declined = shipment.declinedRiderIds ?? [];
     const rider = await this.riderService.claimNearestAvailableRider(lng, lat, declined);

@@ -31,7 +31,11 @@ export const swaggerComponents = {
         address: { type: "string", example: "12 Admiralty Way, Lekki" },
         phone: { type: "string", example: "+2348012345678" },
         country: { type: "string", example: "NG", description: "ISO 3166-1 alpha-2 country code" },
-        state: { type: "string", example: "Lagos", description: "Nigerian state name" },
+        state: {
+          type: "string",
+          example: "Lagos",
+          description: "State or province name (for Nigeria, must match a known state)",
+        },
       },
     },
     PackageDetails: {
@@ -83,6 +87,20 @@ export const swaggerComponents = {
         senderDetails: { $ref: "#/components/schemas/ContactDetails" },
         recipientDetails: { $ref: "#/components/schemas/ContactDetails" },
         packageDetails: { $ref: "#/components/schemas/PackageDetails" },
+        pickupWindowStart: { type: "string", format: "date-time", nullable: true },
+        pickupWindowEnd: { type: "string", format: "date-time", nullable: true },
+        pickupLongitude: {
+          type: "number",
+          nullable: true,
+          description: "WGS84 longitude set at create time or geocoded from sender address during rider assignment",
+        },
+        pickupLatitude: {
+          type: "number",
+          nullable: true,
+          description: "WGS84 latitude set at create time or geocoded from sender address during rider assignment",
+        },
+        recipientLongitude: { type: "number", nullable: true },
+        recipientLatitude: { type: "number", nullable: true },
         timeline: {
           type: "array",
           items: { $ref: "#/components/schemas/TimelineEntry" },

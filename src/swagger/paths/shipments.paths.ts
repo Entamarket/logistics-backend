@@ -23,6 +23,8 @@ export const shipmentPaths = {
     post: {
       tags: ["Shipments"],
       summary: "Create a shipment (client; payment pending until Paystack succeeds)",
+      description:
+        "For **instant** deliveries, `pickupLongitude` and `pickupLatitude` are optional. When omitted, the sender address is geocoded at rider assignment to find the nearest rider. When provided, both coordinates must be sent together. Scheduled deliveries use `pickupWindowStart` and `pickupWindowEnd` instead.",
       security: cookieSecurity,
       requestBody: {
         required: true,
@@ -36,12 +38,40 @@ export const shipmentPaths = {
                 senderDetails: { $ref: "#/components/schemas/ContactDetails" },
                 recipientDetails: { $ref: "#/components/schemas/ContactDetails" },
                 packageDetails: { $ref: "#/components/schemas/PackageDetails" },
-                pickupWindowStart: { type: "string", format: "date-time", example: "2026-05-18T14:00:00.000Z" },
-                pickupWindowEnd: { type: "string", format: "date-time", example: "2026-05-18T16:00:00.000Z" },
-                pickupLongitude: { type: "number", example: 3.3792 },
-                pickupLatitude: { type: "number", example: 6.5244 },
-                recipientLongitude: { type: "number", example: 3.4219 },
-                recipientLatitude: { type: "number", example: 6.4474 },
+                pickupWindowStart: {
+                  type: "string",
+                  format: "date-time",
+                  example: "2026-05-18T14:00:00.000Z",
+                  description: "Required for scheduled delivery (with pickupWindowEnd)",
+                },
+                pickupWindowEnd: {
+                  type: "string",
+                  format: "date-time",
+                  example: "2026-05-18T16:00:00.000Z",
+                  description: "Required for scheduled delivery (with pickupWindowStart)",
+                },
+                pickupLongitude: {
+                  type: "number",
+                  example: 3.3792,
+                  description:
+                    "Optional for instant delivery. WGS84 longitude for rider matching; omit to use geocoded sender address.",
+                },
+                pickupLatitude: {
+                  type: "number",
+                  example: 6.5244,
+                  description:
+                    "Optional for instant delivery. WGS84 latitude for rider matching; omit to use geocoded sender address.",
+                },
+                recipientLongitude: {
+                  type: "number",
+                  example: 3.4219,
+                  description: "Optional drop-off longitude; must be provided with recipientLatitude.",
+                },
+                recipientLatitude: {
+                  type: "number",
+                  example: 6.4474,
+                  description: "Optional drop-off latitude; must be provided with recipientLongitude.",
+                },
               },
             },
           },
@@ -116,7 +146,9 @@ export const shipmentPaths = {
   "/api/shipments/{id}/payment/verify": {
     post: {
       tags: ["Shipments"],
-      summary: "Verify Paystack payment and fulfill shipment (assign rider if instant)",
+      summary: "Verify Paystack payment and fulfill shipment (assign nearest rider if instant)",
+      description:
+        "For instant shipments, assigns the nearest available rider using pickup GPS coordinates when present, otherwise geocodes the sender address.",
       security: cookieSecurity,
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
       requestBody: {
@@ -310,6 +342,8 @@ export const shipmentPaths = {
     patch: {
       tags: ["Shipments"],
       summary: "Reject rider offer",
+      description:
+        "Reassigns to the next nearest rider using pickup GPS when set, otherwise geocoded sender address.",
       security: cookieSecurity,
       parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
       responses: shipmentResponses,
