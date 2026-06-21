@@ -15,6 +15,7 @@ router.get("/financial-reports/:yearMonth", (req, res) =>
   adminController.financialReportMonth(req as AuthRequest, res)
 );
 router.get("/available-riders", (req, res) => adminController.listAvailableRiders(req as AuthRequest, res));
+router.get("/shipments/export", (req, res) => adminController.exportShipments(req as AuthRequest, res));
 router.get("/shipments", (req, res) => adminController.listShipments(req as AuthRequest, res));
 router.post("/shipments/bulk", (req, res) => adminController.bulkCreateShipments(req as AuthRequest, res));
 router.patch("/shipments/:id/assign", (req, res) => adminController.assignShipment(req as AuthRequest, res));

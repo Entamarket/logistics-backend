@@ -147,6 +147,54 @@ export const adminPaths = {
       },
     },
   },
+  "/api/admin/shipments/export": {
+    get: {
+      tags: ["Admin"],
+      summary: "Export shipments for Excel download (full detail, by created date)",
+      description:
+        "Returns all shipments created within the given calendar year, or within a single month when `month` is set (1–12). Used by the admin shipments page Export Excel action.",
+      security: cookieSecurity,
+      parameters: [
+        {
+          name: "year",
+          in: "query",
+          required: true,
+          schema: { type: "integer", minimum: 2000, maximum: 2100, example: 2026 },
+          description: "Calendar year to export",
+        },
+        {
+          name: "month",
+          in: "query",
+          schema: { type: "integer", minimum: 1, maximum: 12, example: 5 },
+          description: "Optional calendar month (1–12). Omit to export the full year.",
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Shipment export payload",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/AdminShipmentExportResult" },
+                },
+              },
+            },
+          },
+        },
+        "400": {
+          description: "Invalid year or month",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "403": {
+          description: "Admin access required",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+      },
+    },
+  },
   "/api/admin/shipments/bulk": {
     post: {
       tags: ["Admin"],

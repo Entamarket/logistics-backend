@@ -25,6 +25,8 @@ router.post("/estimate-price", authMiddleware, (req, res) =>
   shipmentController.estimateShipmentPrice(req as AuthRequest, res)
 );
 
+router.get("/track/:id", (req, res) => shipmentController.getPublicStatus(req as AuthRequest, res));
+
 router.post("/:id/payment/initialize", authMiddleware, (req, res) =>
   shipmentController.initializeShipmentPayment(req as AuthRequest, res)
 );

@@ -76,6 +76,32 @@ export class AdminController {
     }
   }
 
+  async exportShipments(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const rawYear = typeof req.query.year === "string" ? parseInt(req.query.year, 10) : NaN;
+      if (!Number.isFinite(rawYear) || rawYear < 2000 || rawYear > 2100) {
+        res.status(400).json({ success: false, message: "year is required and must be between 2000 and 2100" });
+        return;
+      }
+
+      let month: number | undefined;
+      if (typeof req.query.month === "string" && req.query.month.trim() !== "") {
+        const rawMonth = parseInt(req.query.month, 10);
+        if (!Number.isFinite(rawMonth) || rawMonth < 1 || rawMonth > 12) {
+          res.status(400).json({ success: false, message: "month must be between 1 and 12" });
+          return;
+        }
+        month = rawMonth;
+      }
+
+      const data = await adminService.exportShipments({ year: rawYear, month });
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error exporting shipments";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
   async getShipment(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;

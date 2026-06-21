@@ -264,6 +264,50 @@ export const swaggerComponents = {
         },
       },
     },
+    AdminShipmentExportItem: {
+      allOf: [
+        { $ref: "#/components/schemas/AdminShipmentListItem" },
+        {
+          type: "object",
+          properties: {
+            senderDetails: { $ref: "#/components/schemas/ContactDetails" },
+            recipientDetails: { $ref: "#/components/schemas/ContactDetails" },
+            packageDetails: { $ref: "#/components/schemas/PackageDetails" },
+            timeline: {
+              type: "array",
+              items: { $ref: "#/components/schemas/TimelineEntry" },
+            },
+            pickupWindowStart: { type: "string", format: "date-time", nullable: true },
+            pickupWindowEnd: { type: "string", format: "date-time", nullable: true },
+            pickupLongitude: { type: "number", nullable: true },
+            pickupLatitude: { type: "number", nullable: true },
+            recipientLongitude: { type: "number", nullable: true },
+            recipientLatitude: { type: "number", nullable: true },
+            riderResponseDeadline: { type: "string", format: "date-time", nullable: true },
+            declinedRiderCount: { type: "integer", example: 0 },
+            updatedAt: { type: "string", format: "date-time" },
+            paystackReference: { type: "string", nullable: true },
+            paidAt: { type: "string", format: "date-time", nullable: true },
+            deliveredAt: { type: "string", format: "date-time", nullable: true },
+          },
+        },
+      ],
+    },
+    AdminShipmentExportResult: {
+      type: "object",
+      properties: {
+        generatedAt: { type: "string", format: "date-time" },
+        year: { type: "integer", example: 2026 },
+        month: { type: "integer", minimum: 1, maximum: 12, nullable: true, example: 5 },
+        label: { type: "string", example: "May 2026" },
+        count: { type: "integer", example: 42 },
+        availableYears: { type: "array", items: { type: "integer" }, example: [2026, 2025] },
+        shipments: {
+          type: "array",
+          items: { $ref: "#/components/schemas/AdminShipmentExportItem" },
+        },
+      },
+    },
     ShipmentTracking: {
       type: "object",
       properties: {
@@ -294,6 +338,29 @@ export const swaggerComponents = {
           },
         },
         riderLocationUpdatedAt: { type: "string", format: "date-time", nullable: true },
+      },
+    },
+    PublicShipmentStatus: {
+      type: "object",
+      properties: {
+        shipmentId: { type: "string", example: "664a1b2c3d4e5f6789012345" },
+        status: {
+          type: "string",
+          enum: [
+            "pending",
+            "scheduled",
+            "searching_rider",
+            "awaiting_rider_response",
+            "rider_assigned",
+            "picked_up",
+            "in_transit",
+            "delivered",
+            "cancelled",
+          ],
+          example: "in_transit",
+        },
+        deliveryType: { type: "string", enum: ["instant", "scheduled"], example: "instant" },
+        updatedAt: { type: "string", format: "date-time" },
       },
     },
     RevenueSummary: {

@@ -285,6 +285,44 @@ export const shipmentPaths = {
       },
     },
   },
+  "/api/shipments/track/{id}": {
+    get: {
+      tags: ["Shipments"],
+      summary: "Public shipment status lookup (no auth)",
+      description:
+        "Returns the current shipment status for the landing-page tracker. Accepts the full MongoDB shipment id or the 8-character reference shown in the dashboard. Does not expose addresses, pricing, or contact details.",
+      parameters: [
+        {
+          name: "id",
+          in: "path",
+          required: true,
+          schema: { type: "string", example: "664a1b2c3d4e5f6789012345" },
+          description: "Full shipment id or 8-character reference (with or without #)",
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Current status",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/PublicShipmentStatus" },
+                },
+              },
+            },
+          },
+        },
+        "400": {
+          description: "Ambiguous short reference",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
   "/api/shipments/{id}/tracking": {
     get: {
       tags: ["Shipments"],

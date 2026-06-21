@@ -148,6 +148,27 @@ export interface AdminShipmentDetail extends AdminShipmentListItem {
   updatedAt: string;
 }
 
+export interface AdminShipmentExportItem extends AdminShipmentDetail {
+  paystackReference?: string;
+  paidAt?: string;
+  deliveredAt?: string;
+}
+
+export interface AdminShipmentExportResult {
+  generatedAt: string;
+  year: number;
+  month?: number;
+  label: string;
+  count: number;
+  availableYears: number[];
+  shipments: AdminShipmentExportItem[];
+}
+
+export interface ExportShipmentsOptions {
+  year: number;
+  month?: number;
+}
+
 export interface ListShipmentsQuery {
   status?: string;
   limit?: number;
@@ -293,6 +314,8 @@ type PopulatedShipmentDoc = {
   recipientLatitude?: number;
   riderResponseDeadline?: Date;
   declinedRiderIds?: Types.ObjectId[];
+  paystackReference?: string;
+  paidAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -413,6 +436,31 @@ function mapDetail(doc: PopulatedShipmentDoc): AdminShipmentDetail {
     declinedRiderCount: doc.declinedRiderIds?.length ?? 0,
     updatedAt: new Date(doc.updatedAt).toISOString(),
   };
+}
+
+function mapExportItem(doc: PopulatedShipmentDoc): AdminShipmentExportItem {
+  const base = mapDetail(doc);
+  return {
+    ...base,
+    paystackReference: doc.paystackReference,
+    paidAt: toIso(doc.paidAt),
+    deliveredAt:
+      doc.status === ShipmentStatus.DELIVERED
+        ? deliveredAtFromDoc(doc).toISOString()
+        : undefined,
+  };
+}
+
+async function listShipmentCreatedYears(): Promise<number[]> {
+  const rows = await Shipment.aggregate<{ _id: number }>([
+    { $group: { _id: { $year: "$createdAt" } } },
+    { $sort: { _id: -1 } },
+  ]).exec();
+  const years = rows.map((r) => r._id).filter((y) => Number.isFinite(y));
+  if (years.length === 0) {
+    years.push(new Date().getFullYear());
+  }
+  return years;
 }
 
 type LeanShipment = {
@@ -705,6 +753,41 @@ export class AdminService {
       .exec()) as unknown as PopulatedShipmentDoc[];
 
     return rows.map(mapListItem);
+  }
+
+  async exportShipments(options: ExportShipmentsOptions): Promise<AdminShipmentExportResult> {
+    const { year, month } = options;
+    const rangeStart =
+      month != null ? new Date(year, month - 1, 1) : new Date(year, 0, 1);
+    const rangeEnd =
+      month != null ? new Date(year, month, 1) : new Date(year + 1, 0, 1);
+
+    const rows = (await Shipment.find({
+      createdAt: { $gte: rangeStart, $lt: rangeEnd },
+    })
+      .sort({ createdAt: -1 })
+      .populate(shipmentPopulate)
+      .lean()
+      .exec()) as unknown as PopulatedShipmentDoc[];
+
+    const availableYears = await listShipmentCreatedYears();
+    const label =
+      month != null
+        ? new Date(year, month - 1, 1).toLocaleString(undefined, {
+            month: "long",
+            year: "numeric",
+          })
+        : String(year);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      year,
+      month,
+      label,
+      count: rows.length,
+      availableYears,
+      shipments: rows.map(mapExportItem),
+    };
   }
 
   async getShipmentById(id: string): Promise<AdminShipmentDetail | null> {

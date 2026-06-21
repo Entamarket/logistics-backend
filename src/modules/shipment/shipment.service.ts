@@ -84,6 +84,13 @@ export interface ShipmentTrackingDto {
   riderLocationUpdatedAt: string | null;
 }
 
+export interface PublicShipmentStatusDto {
+  shipmentId: string;
+  status: string;
+  deliveryType: string;
+  updatedAt: string;
+}
+
 /** Deduped contact row for riders (pickup vs drop-off) from assigned shipments. */
 export interface RiderAddressBookEntry {
   role: "sender" | "recipient";
@@ -753,6 +760,62 @@ export class ShipmentService {
         return entry;
       })
       .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
+  }
+
+  /** Public status lookup for landing-page tracking (no addresses or payment details). */
+  async getPublicShipmentStatus(rawId: string): Promise<PublicShipmentStatusDto | null> {
+    const id = rawId.trim().replace(/^#/, "");
+    if (!id) {
+      return null;
+    }
+
+    type StatusRow = {
+      _id: Types.ObjectId;
+      status: string;
+      deliveryType: string;
+      updatedAt: Date;
+    };
+
+    if (Types.ObjectId.isValid(id) && id.length === 24) {
+      const row = (await Shipment.findById(id)
+        .select("status deliveryType updatedAt")
+        .lean()
+        .exec()) as StatusRow | null;
+      if (!row) {
+        return null;
+      }
+      return {
+        shipmentId: row._id.toString(),
+        status: row.status,
+        deliveryType: row.deliveryType,
+        updatedAt: new Date(row.updatedAt).toISOString(),
+      };
+    }
+
+    if (/^[0-9a-fA-F]{8}$/.test(id)) {
+      const suffix = id.toLowerCase();
+      const candidates = await Shipment.aggregate<StatusRow>([
+        { $addFields: { idStr: { $toString: "$_id" } } },
+        { $match: { idStr: { $regex: `${suffix}$`, $options: "i" } } },
+        { $project: { status: 1, deliveryType: 1, updatedAt: 1 } },
+        { $limit: 2 },
+      ]).exec();
+      if (candidates.length === 1) {
+        const row = candidates[0];
+        return {
+          shipmentId: row._id.toString(),
+          status: row.status,
+          deliveryType: row.deliveryType,
+          updatedAt: new Date(row.updatedAt).toISOString(),
+        };
+      }
+      if (candidates.length > 1) {
+        throw new Error("Multiple shipments match this reference. Use the full shipment ID from your receipt.");
+      }
+      return null;
+    }
+
+    return null;
   }
 
   async getTrackingForOwner(shipmentId: string, ownerUserId: string): Promise<ShipmentTrackingDto | null> {

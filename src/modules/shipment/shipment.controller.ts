@@ -330,6 +330,26 @@ export class ShipmentController {
     }
   }
 
+  async getPublicStatus(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      if (!id?.trim()) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      const data = await shipmentService.getPublicShipmentStatus(id);
+      if (!data) {
+        res.status(404).json({ success: false, message: "Shipment not found" });
+        return;
+      }
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error looking up shipment";
+      const status = message.includes("Multiple shipments") ? 400 : 500;
+      res.status(status).json({ success: false, message });
+    }
+  }
+
   async getTracking(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.userId;
