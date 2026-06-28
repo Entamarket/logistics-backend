@@ -49,7 +49,7 @@ export class FeedbackService {
     if (!shipment) {
       throw new Error("Shipment not found");
     }
-    if (shipment.userId.toString() !== clientUserId) {
+    if (!shipment.userId || shipment.userId.toString() !== clientUserId) {
       throw new Error("Not authorized to leave feedback for this shipment");
     }
     if (shipment.status !== ShipmentStatus.DELIVERED) {

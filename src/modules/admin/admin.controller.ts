@@ -133,15 +133,16 @@ export class AdminController {
 
   async bulkCreateShipments(req: AuthRequest, res: Response): Promise<void> {
     try {
+      const adminUserId = req.userId;
+      if (!adminUserId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
       const { clientId, defaultRiderId, shipments } = req.body as {
         clientId?: string;
         defaultRiderId?: string;
         shipments?: unknown[];
       };
-      if (!clientId || typeof clientId !== "string") {
-        res.status(400).json({ success: false, message: "clientId is required" });
-        return;
-      }
       if (!defaultRiderId || typeof defaultRiderId !== "string") {
         res.status(400).json({ success: false, message: "defaultRiderId is required" });
         return;
@@ -155,11 +156,18 @@ export class AdminController {
         return;
       }
       const results = await adminService.bulkCreateShipmentsAndAssign({
-        clientId: clientId.trim(),
+        adminUserId,
+        clientId: typeof clientId === "string" && clientId.trim() ? clientId.trim() : null,
         defaultRiderId: defaultRiderId.trim(),
         shipments: shipments as Array<{
           deliveryType: "instant" | "scheduled";
-          senderDetails: {
+          pickupDetails?: {
+            address: string;
+            phone: string;
+            country?: string;
+            state?: string;
+          };
+          senderDetails?: {
             fullName: string;
             address: string;
             phone: string;

@@ -34,7 +34,8 @@ export interface ITimelineEntry {
 }
 
 export interface IShipment extends Document {
-  userId: Types.ObjectId;
+  /** Client owner; null for admin-only shipments with no client selected. */
+  userId: Types.ObjectId | null;
   status: string;
   deliveryType: string;
   pickupWindowStart?: Date;
@@ -58,6 +59,10 @@ export interface IShipment extends Document {
   senderDetails: ISenderDetails;
   recipientDetails: IRecipientDetails;
   packageDetails: IPackageDetails;
+  /** True when an admin created the shipment on behalf of a client. */
+  createdByAdmin?: boolean;
+  /** Admin user who created this shipment (admin create path). */
+  createdByAdminUserId?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -109,7 +114,8 @@ const shipmentSchema = new Schema<IShipment>(
   {
     userId: {
       type: Schema.Types.ObjectId,
-      required: [true, "User ID is required"],
+      required: false,
+      default: null,
       ref: "User",
     },
     status: {
@@ -156,6 +162,8 @@ const shipmentSchema = new Schema<IShipment>(
     senderDetails: { type: senderDetailsSchema, required: true },
     recipientDetails: { type: recipientDetailsSchema, required: true },
     packageDetails: { type: packageDetailsSchema, required: true },
+    createdByAdmin: { type: Boolean, default: false },
+    createdByAdminUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
   },
   { timestamps: true }
 );

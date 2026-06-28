@@ -107,7 +107,7 @@ export interface AdminShipmentListItem {
   price: number;
   paymentStatus: string;
   createdAt: string;
-  client: AdminClientDto;
+  client: AdminClientDto | null;
   rider: AdminRiderDto | null;
   assignmentLabel: string;
 }
@@ -145,6 +145,8 @@ export interface AdminShipmentDetail extends AdminShipmentListItem {
   recipientLatitude?: number;
   riderResponseDeadline?: string;
   declinedRiderCount: number;
+  createdByAdmin?: boolean;
+  createdByAdminUser?: AdminClientDto | null;
   updatedAt: string;
 }
 
@@ -296,7 +298,7 @@ type PopulatedRider = {
 
 type PopulatedShipmentDoc = {
   _id: Types.ObjectId;
-  userId: PopulatedUser | Types.ObjectId;
+  userId: PopulatedUser | Types.ObjectId | null;
   status: string;
   deliveryType: string;
   price: number;
@@ -316,12 +318,15 @@ type PopulatedShipmentDoc = {
   declinedRiderIds?: Types.ObjectId[];
   paystackReference?: string;
   paidAt?: Date;
+  createdByAdmin?: boolean;
+  createdByAdminUserId?: PopulatedUser | Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
 const shipmentPopulate = [
   { path: "userId", select: "firstName lastName email phone" },
+  { path: "createdByAdminUserId", select: "firstName lastName email phone" },
   {
     path: "riderID",
     populate: { path: "userId", select: "firstName lastName email phone" },
@@ -336,7 +341,8 @@ function isPopulatedRider(v: PopulatedRider | Types.ObjectId | null | undefined)
   return v != null && typeof v === "object" && "userId" in v;
 }
 
-function mapClient(userId: PopulatedUser | Types.ObjectId): AdminClientDto {
+function mapClient(userId: PopulatedUser | Types.ObjectId | null | undefined): AdminClientDto | null {
+  if (userId == null) return null;
   if (!isPopulatedUser(userId)) {
     const id = userId.toString();
     return { id, firstName: "", lastName: "", email: "", phone: "" };
@@ -434,6 +440,8 @@ function mapDetail(doc: PopulatedShipmentDoc): AdminShipmentDetail {
     recipientLatitude: doc.recipientLatitude,
     riderResponseDeadline: toIso(doc.riderResponseDeadline),
     declinedRiderCount: doc.declinedRiderIds?.length ?? 0,
+    createdByAdmin: Boolean(doc.createdByAdmin),
+    createdByAdminUser: mapClient(doc.createdByAdminUserId),
     updatedAt: new Date(doc.updatedAt).toISOString(),
   };
 }
@@ -694,17 +702,14 @@ export class AdminService {
       if (key !== yearMonth) continue;
 
       const user = row.userId;
-      let client = { id: "", firstName: "", lastName: "", email: "" };
-      if (isPopulatedUser(user)) {
-        client = {
-          id: user._id.toString(),
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-        };
-      } else if (user) {
-        client = { id: String(user), firstName: "", lastName: "", email: "" };
-      }
+      const mappedClient = mapClient(user);
+      const client = mappedClient ?? {
+        id: "",
+        firstName: "Admin",
+        lastName: "account",
+        email: "",
+        phone: "",
+      };
 
       const price = typeof row.price === "number" && !Number.isNaN(row.price) ? row.price : 0;
 
@@ -820,18 +825,21 @@ export class AdminService {
   }
 
   async bulkCreateShipmentsAndAssign(params: {
-    clientId: string;
+    adminUserId: string;
+    clientId?: string | null;
     defaultRiderId: string;
     shipments: Array<CreateShipmentBody & { riderId?: string }>;
   }): Promise<AdminBulkShipmentResult[]> {
-    const { clientId, defaultRiderId, shipments } = params;
-    const client = await this.findClientById(clientId);
-    if (!client) {
-      throw new Error("Client not found");
-    }
-    const clientStatus = client.status || UserAccountStatus.ACTIVE;
-    if (clientStatus !== UserAccountStatus.ACTIVE) {
-      throw new Error("This client account cannot create shipments.");
+    const { adminUserId, clientId, defaultRiderId, shipments } = params;
+    if (clientId) {
+      const client = await this.findClientById(clientId);
+      if (!client) {
+        throw new Error("Client not found");
+      }
+      const clientStatus = client.status || UserAccountStatus.ACTIVE;
+      if (clientStatus !== UserAccountStatus.ACTIVE) {
+        throw new Error("This client account cannot create shipments.");
+      }
     }
 
     const results: AdminBulkShipmentResult[] = [];
@@ -844,7 +852,11 @@ export class AdminService {
       }
       try {
         const { riderId: _override, ...shipmentData } = item;
-        const created = await this.shipmentService.createShipmentForAdmin(clientId, shipmentData);
+        const created = await this.shipmentService.createShipmentForAdmin(
+          adminUserId,
+          clientId ?? null,
+          shipmentData
+        );
         await this.shipmentService.adminAssignRider(created._id.toString(), riderId);
         results.push({ index, success: true, shipmentId: created._id.toString() });
       } catch (e) {

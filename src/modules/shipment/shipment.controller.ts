@@ -13,11 +13,26 @@ export class ShipmentController {
         return;
       }
 
-      const { senderDetails, recipientDetails, weight, lengthCm, widthCm, heightCm } = req.body ?? {};
-      if (!senderDetails || !recipientDetails) {
+      const { senderDetails, recipientDetails, weight, lengthCm, widthCm, heightCm, pickupLongitude, pickupLatitude } =
+        req.body ?? {};
+      if (!recipientDetails) {
         res.status(400).json({
           success: false,
-          message: "senderDetails and recipientDetails are required",
+          message: "recipientDetails is required",
+        });
+        return;
+      }
+      const hasPickupCoords =
+        pickupLongitude !== undefined &&
+        pickupLongitude !== null &&
+        pickupLongitude !== "" &&
+        pickupLatitude !== undefined &&
+        pickupLatitude !== null &&
+        pickupLatitude !== "";
+      if (!senderDetails && !hasPickupCoords) {
+        res.status(400).json({
+          success: false,
+          message: "senderDetails or pickup coordinates are required",
         });
         return;
       }
@@ -40,6 +55,8 @@ export class ShipmentController {
         lengthCm: Number(lengthCm),
         widthCm: Number(widthCm),
         heightCm: Number(heightCm),
+        pickupLongitude: hasPickupCoords ? Number(pickupLongitude) : undefined,
+        pickupLatitude: hasPickupCoords ? Number(pickupLatitude) : undefined,
       });
 
       res.status(200).json({

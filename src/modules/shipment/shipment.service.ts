@@ -12,7 +12,7 @@ import { User } from "../../shared/models/User";
 import { RiderService } from "../rider/rider.service";
 import { NotificationService } from "../notification/notification.service";
 import { logger } from "../../shared/lib/logger";
-import { normalizeContactDetails, type ContactDetailsInput } from "../../shared/lib/nigeria-locations";
+import { normalizeContactDetails, DEFAULT_COUNTRY_CODE, type ContactDetailsInput } from "../../shared/lib/nigeria-locations";
 import {
   computeShipmentPrice,
   formatContactAddress,
@@ -43,6 +43,13 @@ function uniqueRiderObjectIds(ids: Types.ObjectId[]): Types.ObjectId[] {
   return out;
 }
 
+export interface PickupDetailsInput {
+  address: string;
+  phone: string;
+  country?: string;
+  state?: string;
+}
+
 export interface CreateShipmentBody {
   deliveryType: "instant" | "scheduled";
   pickupWindowStart?: string;
@@ -50,7 +57,9 @@ export interface CreateShipmentBody {
   /** Pickup point for nearest-rider matching (WGS84). Required for instant delivery. */
   pickupLongitude?: number;
   pickupLatitude?: number;
-  senderDetails: ContactDetailsInput;
+  senderDetails?: ContactDetailsInput;
+  /** Physical pickup location for admin-created shipments (sender identity is always ADMIN). */
+  pickupDetails?: PickupDetailsInput;
   recipientDetails: ContactDetailsInput;
   packageDetails: {
     type: string;
@@ -67,12 +76,15 @@ export interface CreateShipmentBody {
 }
 
 export interface EstimateShipmentPriceBody {
-  senderDetails: ContactDetailsInput;
+  senderDetails?: ContactDetailsInput;
   recipientDetails: ContactDetailsInput;
   weight: number;
   lengthCm: number;
   widthCm: number;
   heightCm: number;
+  /** When set, origin for pricing uses coordinates instead of sender address. */
+  pickupLongitude?: number;
+  pickupLatitude?: number;
 }
 
 export interface ShipmentTrackingDto {
@@ -232,7 +244,6 @@ export class ShipmentService {
   }
 
   async estimateShipmentPrice(data: EstimateShipmentPriceBody): Promise<ShipmentPriceBreakdown> {
-    const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
     const recipientDetails = normalizeContactDetails(data.recipientDetails, "Recipient");
     const weightKg = Number(data.weight);
     if (!Number.isFinite(weightKg) || weightKg < 0) {
@@ -240,9 +251,22 @@ export class ShipmentService {
     }
     const dims = parsePackageDimensions(data.lengthCm, data.widthCm, data.heightCm);
 
-    const origin = await geocodeAddress(formatContactAddress(senderDetails));
     const destination = await geocodeAddress(formatContactAddress(recipientDetails));
-    const distanceMeters = await drivingDistanceMeters(origin, destination);
+    let distanceMeters: number;
+    if (this.hasValidPickupCoordinates(data)) {
+      const origin = {
+        lng: data.pickupLongitude as number,
+        lat: data.pickupLatitude as number,
+      };
+      distanceMeters = await drivingDistanceMeters(origin, destination);
+    } else {
+      if (!data.senderDetails) {
+        throw new Error("senderDetails or pickup coordinates are required for price estimation");
+      }
+      const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
+      const origin = await geocodeAddress(formatContactAddress(senderDetails));
+      distanceMeters = await drivingDistanceMeters(origin, destination);
+    }
     return computeShipmentPrice(
       distanceMeters,
       weightKg,
@@ -266,6 +290,38 @@ export class ShipmentService {
     return computeShipmentPrice(distanceMeters, weightKg, lengthCm, widthCm, heightCm).total;
   }
 
+  private async resolveShipmentPriceFromCoords(
+    pickupLongitude: number,
+    pickupLatitude: number,
+    recipientDetails: { address: string; state: string; country: string },
+    weightKg: number,
+    lengthCm: number,
+    widthCm: number,
+    heightCm: number
+  ): Promise<number> {
+    const origin = { lng: pickupLongitude, lat: pickupLatitude };
+    const destination = await geocodeAddress(formatContactAddress(recipientDetails));
+    const distanceMeters = await drivingDistanceMeters(origin, destination);
+    return computeShipmentPrice(distanceMeters, weightKg, lengthCm, widthCm, heightCm).total;
+  }
+
+  private buildAdminSenderDetails(
+    recipientDetails: ContactDetailsInput,
+    pickupDetails?: PickupDetailsInput | ContactDetailsInput
+  ): ReturnType<typeof normalizeContactDetails> {
+    const address = pickupDetails?.address?.trim() || "—";
+    const phone = pickupDetails?.phone?.trim() || "—";
+    const country = pickupDetails?.country?.trim() || DEFAULT_COUNTRY_CODE;
+    const state =
+      pickupDetails?.state?.trim() ||
+      recipientDetails.state?.trim() ||
+      "Lagos";
+    return normalizeContactDetails(
+      { fullName: "ADMIN", address, phone, country, state },
+      "Sender"
+    );
+  }
+
   async createShipment(userId: string, data: CreateShipmentBody): Promise<IShipment> {
     const clientUser = await User.findById(userId).select("status role").lean().exec();
     if (!clientUser) {
@@ -278,6 +334,9 @@ export class ShipmentService {
       }
     }
 
+    if (!data.senderDetails) {
+      throw new Error("Sender details are required");
+    }
     const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
     const recipientDetails = normalizeContactDetails(data.recipientDetails, "Recipient");
 
@@ -389,42 +448,72 @@ export class ShipmentService {
   }
 
   /**
-   * Admin creates a shipment on behalf of a client without auto nearest-rider matching.
+   * Admin creates a shipment without auto nearest-rider matching.
    * Rider assignment is done separately via adminAssignRider.
    */
-  async createShipmentForAdmin(clientUserId: string, data: CreateShipmentBody): Promise<IShipment> {
-    const clientUser = await User.findById(clientUserId).select("status role").lean().exec();
-    if (!clientUser) {
-      throw new Error("Client not found");
-    }
-    if (clientUser.role !== "client") {
-      throw new Error("Selected user is not a client");
-    }
-    const accountStatus = clientUser.status || UserAccountStatus.ACTIVE;
-    if (accountStatus !== UserAccountStatus.ACTIVE) {
-      throw new Error("This client account cannot create shipments.");
+  async createShipmentForAdmin(
+    adminUserId: string,
+    clientUserId: string | null | undefined,
+    data: CreateShipmentBody
+  ): Promise<IShipment> {
+    let ownerUserId: Types.ObjectId | null = null;
+    const trimmedClientId = clientUserId?.trim();
+    if (trimmedClientId) {
+      const clientUser = await User.findById(trimmedClientId).select("status role").lean().exec();
+      if (!clientUser) {
+        throw new Error("Client not found");
+      }
+      if (clientUser.role !== "client") {
+        throw new Error("Selected user is not a client");
+      }
+      const accountStatus = clientUser.status || UserAccountStatus.ACTIVE;
+      if (accountStatus !== UserAccountStatus.ACTIVE) {
+        throw new Error("This client account cannot create shipments.");
+      }
+      ownerUserId = new Types.ObjectId(trimmedClientId);
     }
 
-    const senderDetails = normalizeContactDetails(data.senderDetails, "Sender");
     const recipientDetails = normalizeContactDetails(data.recipientDetails, "Recipient");
+    const senderDetails = this.buildAdminSenderDetails(
+      data.recipientDetails,
+      data.pickupDetails ?? data.senderDetails
+    );
+
+    if (data.deliveryType === DeliveryType.SCHEDULED && !data.pickupDetails?.address?.trim()) {
+      throw new Error("Pickup location address is required for scheduled delivery");
+    }
 
     const initialStatus =
       data.deliveryType === DeliveryType.SCHEDULED ? ShipmentStatus.SCHEDULED : ShipmentStatus.PENDING;
-    const price = await this.resolveShipmentPrice(
-      senderDetails,
-      recipientDetails,
-      data.packageDetails.weight,
-      data.packageDetails.lengthCm,
-      data.packageDetails.widthCm,
-      data.packageDetails.heightCm
-    );
+
+    let price: number;
+    if (data.deliveryType === DeliveryType.INSTANT && this.hasValidPickupCoordinates(data)) {
+      price = await this.resolveShipmentPriceFromCoords(
+        data.pickupLongitude as number,
+        data.pickupLatitude as number,
+        recipientDetails,
+        data.packageDetails.weight,
+        data.packageDetails.lengthCm,
+        data.packageDetails.widthCm,
+        data.packageDetails.heightCm
+      );
+    } else {
+      price = await this.resolveShipmentPrice(
+        senderDetails,
+        recipientDetails,
+        data.packageDetails.weight,
+        data.packageDetails.lengthCm,
+        data.packageDetails.widthCm,
+        data.packageDetails.heightCm
+      );
+    }
 
     if (data.deliveryType === DeliveryType.INSTANT) {
       this.validateOptionalPickupCoordinates(data.pickupLongitude, data.pickupLatitude);
     }
 
     const createPayload: {
-      userId: Types.ObjectId;
+      userId: Types.ObjectId | null;
       status: string;
       deliveryType: string;
       riderID: Types.ObjectId | null;
@@ -449,8 +538,10 @@ export class ShipmentService {
       pickupLatitude?: number;
       recipientLongitude?: number;
       recipientLatitude?: number;
+      createdByAdmin: boolean;
+      createdByAdminUserId: Types.ObjectId;
     } = {
-      userId: new Types.ObjectId(clientUserId),
+      userId: ownerUserId,
       status: initialStatus,
       deliveryType: data.deliveryType,
       riderID: null,
@@ -460,6 +551,8 @@ export class ShipmentService {
       timeline: [{ status: initialStatus, timestamp: new Date() }],
       senderDetails,
       recipientDetails,
+      createdByAdmin: true,
+      createdByAdminUserId: new Types.ObjectId(adminUserId),
       packageDetails: {
         ...data.packageDetails,
         note: data.packageDetails.note ?? "",
@@ -547,7 +640,9 @@ export class ShipmentService {
     shipment.status = ShipmentStatus.DELIVERED;
     shipment.timeline.push({ status: ShipmentStatus.DELIVERED, timestamp: new Date() });
     await shipment.save();
-    void this.notifyClientDeliveryComplete(shipment.userId.toString(), shipment._id.toString());
+    if (shipment.userId) {
+      void this.notifyClientDeliveryComplete(shipment.userId.toString(), shipment._id.toString());
+    }
     return shipment;
   }
 
@@ -645,7 +740,9 @@ export class ShipmentService {
     shipment.riderResponseDeadline = undefined;
     shipment.timeline.push({ status: ShipmentStatus.RIDER_ASSIGNED, timestamp: new Date() });
     await shipment.save();
-    void this.notifyClientRiderAccepted(shipment.userId.toString(), shipment._id.toString());
+    if (shipment.userId) {
+      void this.notifyClientRiderAccepted(shipment.userId.toString(), shipment._id.toString());
+    }
     return shipment;
   }
 
@@ -841,7 +938,7 @@ export class ShipmentService {
     if (!shipment) {
       return null;
     }
-    if (shipment.userId.toString() !== ownerUserId) {
+    if (!shipment.userId || shipment.userId.toString() !== ownerUserId) {
       throw new Error("Not authorized to view tracking for this shipment");
     }
 
@@ -969,7 +1066,7 @@ export class ShipmentService {
     if (!shipment) {
       throw new Error("Shipment not found");
     }
-    if (shipment.userId.toString() !== userId) {
+    if (!shipment.userId || shipment.userId.toString() !== userId) {
       throw new Error("Not authorized to access this shipment");
     }
     return shipment;
