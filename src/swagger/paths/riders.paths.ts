@@ -58,7 +58,7 @@ export const riderPaths = {
       tags: ["Riders"],
       summary: "Update current rider availability for new assignments",
       description:
-        "Riders may set isAvailable to false anytime (off duty; current deliveries continue). Setting true requires active status and verified profile.",
+        "On/off duty toggle only. When true, the rider can receive new shipment offers (including while other jobs are in progress). When false, no new offers are sent; current deliveries continue. Setting true requires active status and verified profile.",
       security: cookieSecurity,
       requestBody: {
         required: true,
@@ -71,7 +71,8 @@ export const riderPaths = {
                 isAvailable: {
                   type: "boolean",
                   example: true,
-                  description: "When true, rider can be matched to new instant shipments (if location is set).",
+                  description:
+                    "When true, rider is on duty and eligible for new offers (multiple concurrent jobs allowed). When false, off duty.",
                 },
               },
             },

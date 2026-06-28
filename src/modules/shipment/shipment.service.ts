@@ -527,7 +527,6 @@ export class ShipmentService {
     shipment.status = ShipmentStatus.DELIVERED;
     shipment.timeline.push({ status: ShipmentStatus.DELIVERED, timestamp: new Date() });
     await shipment.save();
-    await this.riderService.setRiderAvailable(rider._id.toString(), true);
     void this.notifyClientDeliveryComplete(shipment.userId.toString(), shipment._id.toString());
     return shipment;
   }
@@ -542,7 +541,6 @@ export class ShipmentService {
     }
 
     const currentId = shipment.riderID as Types.ObjectId;
-    await this.riderService.setRiderAvailable(currentId.toString(), true);
 
     const previousDeclined = (shipment.declinedRiderIds || []).map((id) =>
       id instanceof Types.ObjectId ? id : new Types.ObjectId(String(id))
@@ -554,7 +552,7 @@ export class ShipmentService {
       persistGeocoded: true,
     });
 
-    const nextRider = await this.riderService.claimNearestAvailableRider(lng, lat, excludeIds);
+    const nextRider = await this.riderService.findNearestOnDutyRider(lng, lat, excludeIds);
     if (!nextRider) {
       shipment.riderID = null;
       shipment.status = ShipmentStatus.SEARCHING_RIDER;
@@ -926,33 +924,24 @@ export class ShipmentService {
       throw new Error("This shipment cannot be assigned in its current status");
     }
 
-    if (shipment.status === ShipmentStatus.AWAITING_RIDER_RESPONSE && shipment.riderID) {
-      await this.riderService.setRiderAvailable(shipment.riderID.toString(), true);
-    }
-
-    const claimed = await this.riderService.claimRiderById(riderId);
-    if (!claimed) {
+    const assignedRider = await this.riderService.findOnDutyRiderById(riderId);
+    if (!assignedRider) {
       throw new Error("Rider is not available or does not meet assignment requirements");
     }
 
-    try {
-      shipment.riderID = claimed._id as Types.ObjectId;
-      shipment.status = ShipmentStatus.AWAITING_RIDER_RESPONSE;
-      shipment.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
-      if (!shipment.declinedRiderIds?.length) {
-        shipment.declinedRiderIds = shipment.declinedRiderIds ?? [];
-      }
-      shipment.timeline.push({
-        status: ShipmentStatus.AWAITING_RIDER_RESPONSE,
-        timestamp: new Date(),
-      });
-      await shipment.save();
-      void this.notifyRiderShipmentAssigned(claimed._id.toString(), shipment._id.toString());
-      return shipment;
-    } catch (err) {
-      await this.riderService.setRiderAvailable(riderId, true);
-      throw err;
+    shipment.riderID = assignedRider._id as Types.ObjectId;
+    shipment.status = ShipmentStatus.AWAITING_RIDER_RESPONSE;
+    shipment.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
+    if (!shipment.declinedRiderIds?.length) {
+      shipment.declinedRiderIds = shipment.declinedRiderIds ?? [];
     }
+    shipment.timeline.push({
+      status: ShipmentStatus.AWAITING_RIDER_RESPONSE,
+      timestamp: new Date(),
+    });
+    await shipment.save();
+    void this.notifyRiderShipmentAssigned(assignedRider._id.toString(), shipment._id.toString());
+    return shipment;
   }
 
   private async getShipmentForClient(shipmentId: string, userId: string): Promise<IShipment> {
@@ -1105,27 +1094,22 @@ export class ShipmentService {
     });
 
     const declined = shipment.declinedRiderIds ?? [];
-    const rider = await this.riderService.claimNearestAvailableRider(lng, lat, declined);
+    const rider = await this.riderService.findNearestOnDutyRider(lng, lat, declined);
     if (!rider) {
       throw new Error("No rider available nearby. Please try again later.");
     }
 
     const riderId = rider._id as Types.ObjectId;
-    try {
-      shipment.riderID = riderId;
-      shipment.status = ShipmentStatus.AWAITING_RIDER_RESPONSE;
-      shipment.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
-      shipment.declinedRiderIds = declined;
-      shipment.timeline.push({
-        status: ShipmentStatus.AWAITING_RIDER_RESPONSE,
-        timestamp: new Date(),
-      });
-      await shipment.save();
-      void this.notifyRiderShipmentAssigned(riderId.toString(), shipment._id.toString());
-    } catch (err) {
-      await this.riderService.setRiderAvailable(riderId.toString(), true);
-      throw err;
-    }
+    shipment.riderID = riderId;
+    shipment.status = ShipmentStatus.AWAITING_RIDER_RESPONSE;
+    shipment.riderResponseDeadline = new Date(Date.now() + RIDER_RESPONSE_WINDOW_MS);
+    shipment.declinedRiderIds = declined;
+    shipment.timeline.push({
+      status: ShipmentStatus.AWAITING_RIDER_RESPONSE,
+      timestamp: new Date(),
+    });
+    await shipment.save();
+    void this.notifyRiderShipmentAssigned(riderId.toString(), shipment._id.toString());
   }
 
   async handlePaystackWebhook(event: {

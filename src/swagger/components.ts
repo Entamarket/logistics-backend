@@ -150,7 +150,11 @@ export const swaggerComponents = {
         _id: { type: "string", example: "664a1b2c3d4e5f6789012346" },
         userId: { $ref: "#/components/schemas/RiderUserRef" },
         status: { type: "string", enum: ["pending", "active", "suspended", "blocked"], example: "active" },
-        isAvailable: { type: "boolean", example: true },
+        isAvailable: {
+          type: "boolean",
+          example: true,
+          description: "On duty when true; off duty when false. Does not lock after assignment — riders may hold multiple active shipments.",
+        },
         isVerified: { type: "boolean", example: true },
         location: {
           type: "object",

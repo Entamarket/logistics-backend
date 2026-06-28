@@ -316,7 +316,7 @@ export const adminPaths = {
   "/api/admin/shipments/{id}/assign": {
     patch: {
       tags: ["Admin"],
-      summary: "Assign shipment to available rider",
+      summary: "Assign shipment to on-duty rider",
       security: cookieSecurity,
       parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
       requestBody: {

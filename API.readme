@@ -203,7 +203,7 @@ All optional; send only fields to change:
 
 ### Rider resource
 
-[Rider model](src/shared/models/Rider.ts): `userId`, `status`, `isAvailable`, `isVerified`, optional GeoJSON `location`: `{ "type": "Point", "coordinates": [lng, lat] }`, timestamps. List/detail may `populate` `userId` with `firstName`, `lastName`, `email`, `phone`.
+[Rider model](src/shared/models/Rider.ts): `userId`, `status`, `isAvailable`, `isVerified`, optional GeoJSON `location`: `{ "type": "Point", "coordinates": [lng, lat] }`, timestamps. List/detail may `populate` `userId` with `firstName`, `lastName`, `email`, `phone`. `isAvailable` is on/off duty only — assignment does not flip it; on-duty riders may receive multiple concurrent offers.
 
 ### PATCH `/api/riders/me/location` validation
 

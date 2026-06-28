@@ -106,9 +106,10 @@ export class RiderService {
   }
 
   /**
-   * Atomically claims the nearest available rider within maxDistanceMeters (MongoDB returns candidates sorted by distance).
+   * Nearest on-duty rider within maxDistanceMeters (MongoDB returns candidates sorted by distance).
+   * Does not mutate isAvailable — riders may hold multiple concurrent offers/jobs while on duty.
    */
-  private async tryClaimNearestInRadius(
+  private async findNearestOnDutyRiderInRadius(
     longitude: number,
     latitude: number,
     maxDistanceMeters: number,
@@ -131,34 +132,42 @@ export class RiderService {
     if (excludeRiderIds.length > 0) {
       geoFilter._id = { $nin: excludeRiderIds };
     }
-    const candidates = await Rider.find(geoFilter).limit(10).exec();
-
-    for (const candidate of candidates) {
-      const claimed = await Rider.findOneAndUpdate(
-        { _id: candidate._id, isAvailable: true },
-        { $set: { isAvailable: false } },
-        { new: true }
-      ).exec();
-      if (claimed) return claimed;
-    }
-    return null;
+    return Rider.findOne(geoFilter).exec();
   }
 
   /**
-   * Finds nearest active/verified/available rider with a GeoJSON location; tries 5 km then 10 km.
-   * Sets isAvailable to false on the claimed rider.
+   * Finds nearest active, verified, on-duty rider with a GeoJSON location; tries 5 km then 10 km.
    * @param excludeRiderIds riders to skip (e.g. already declined this shipment)
    */
+  async findNearestOnDutyRider(
+    longitude: number,
+    latitude: number,
+    excludeRiderIds: Types.ObjectId[] = []
+  ): Promise<IRider | null> {
+    let rider = await this.findNearestOnDutyRiderInRadius(
+      longitude,
+      latitude,
+      NEAR_METERS_PRIMARY,
+      excludeRiderIds
+    );
+    if (!rider) {
+      rider = await this.findNearestOnDutyRiderInRadius(
+        longitude,
+        latitude,
+        NEAR_METERS_FALLBACK,
+        excludeRiderIds
+      );
+    }
+    return rider;
+  }
+
+  /** @deprecated Use findNearestOnDutyRider */
   async claimNearestAvailableRider(
     longitude: number,
     latitude: number,
     excludeRiderIds: Types.ObjectId[] = []
   ): Promise<IRider | null> {
-    let rider = await this.tryClaimNearestInRadius(longitude, latitude, NEAR_METERS_PRIMARY, excludeRiderIds);
-    if (!rider) {
-      rider = await this.tryClaimNearestInRadius(longitude, latitude, NEAR_METERS_FALLBACK, excludeRiderIds);
-    }
-    return rider;
+    return this.findNearestOnDutyRider(longitude, latitude, excludeRiderIds);
   }
 
   async updateLocationByUserId(userId: string, longitude: number, latitude: number): Promise<IRider | null> {
@@ -239,22 +248,23 @@ export class RiderService {
   }
 
   /**
-   * Atomically claims a specific rider if active, verified, and available.
+   * On-duty rider by id (active, verified, isAvailable). Does not change isAvailable.
    */
-  async claimRiderById(riderId: string): Promise<IRider | null> {
+  async findOnDutyRiderById(riderId: string): Promise<IRider | null> {
     if (!Types.ObjectId.isValid(riderId)) return null;
-    return Rider.findOneAndUpdate(
-      {
-        _id: riderId,
-        status: RiderStatus.ACTIVE,
-        isVerified: true,
-        isAvailable: true,
-      },
-      { $set: { isAvailable: false } },
-      { new: true, runValidators: true }
-    )
+    return Rider.findOne({
+      _id: riderId,
+      status: RiderStatus.ACTIVE,
+      isVerified: true,
+      isAvailable: true,
+    })
       .populate("userId", "firstName lastName email phone")
       .exec();
+  }
+
+  /** @deprecated Use findOnDutyRiderById */
+  async claimRiderById(riderId: string): Promise<IRider | null> {
+    return this.findOnDutyRiderById(riderId);
   }
 
   async listAvailableRiders(): Promise<IRider[]> {

@@ -148,7 +148,7 @@ export const shipmentPaths = {
       tags: ["Shipments"],
       summary: "Verify Paystack payment and fulfill shipment (assign nearest rider if instant)",
       description:
-        "For instant shipments, assigns the nearest available rider using pickup GPS coordinates when present, otherwise geocodes the sender address.",
+        "For instant shipments, offers the nearest on-duty rider using pickup GPS coordinates when present, otherwise geocodes the sender address. Active jobs do not block new offers.",
       security: cookieSecurity,
       parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
       requestBody: {

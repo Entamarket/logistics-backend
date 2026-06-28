@@ -1,7 +1,7 @@
 import { DEFAULT_COUNTRY_CODE } from "./nigeria-locations";
 
 export const BASE_FEE_NGN = 1500;
-export const RATE_PER_KM_NGN = 150;
+export const RATE_PER_KM_NGN = 120;
 
 export const VOLUME_SMALL_MAX_CM3 = 20_000;
 export const VOLUME_MEDIUM_MAX_CM3 = 80_000;
