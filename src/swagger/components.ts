@@ -181,6 +181,7 @@ export const swaggerComponents = {
           type: "string",
           enum: [
             "shipment_assigned",
+            "shipment_offered",
             "rider_accepted_shipment",
             "delivery_complete",
             "complaint_submitted",

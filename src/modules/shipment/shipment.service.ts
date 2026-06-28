@@ -106,14 +106,34 @@ export class ShipmentService {
 
   private async notifyRiderShipmentAssigned(riderMongoId: string, shipmentId: string): Promise<void> {
     try {
-      const rider = await Rider.findById(riderMongoId).select("userId").lean();
-      const uid = rider?.userId ? String(rider.userId) : null;
-      if (!uid) return;
+      const rider = await Rider.findById(riderMongoId)
+        .select("userId")
+        .populate("userId", "firstName lastName")
+        .lean();
+      if (!rider?.userId) return;
+
+      const userRef = rider.userId as
+        | { _id: Types.ObjectId; firstName?: string; lastName?: string }
+        | Types.ObjectId;
+      const uid =
+        typeof userRef === "object" && userRef !== null && "_id" in userRef
+          ? String(userRef._id)
+          : String(userRef);
+      const riderName =
+        typeof userRef === "object" && userRef !== null && "firstName" in userRef
+          ? [userRef.firstName, userRef.lastName].filter(Boolean).join(" ") || undefined
+          : undefined;
+
       await this.notificationService.createForUser(uid, {
         type: NotificationType.SHIPMENT_ASSIGNED,
         title: "New shipment assigned",
         message: "A shipment is waiting for your response. Open Active delivery to accept or decline.",
         relatedShipmentId: shipmentId,
+      });
+
+      void this.notificationService.notifyAdminsShipmentOffered({
+        shipmentId,
+        riderName,
       });
     } catch (e) {
       logger.error("Failed to notify rider of assignment", {

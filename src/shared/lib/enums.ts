@@ -63,6 +63,8 @@ export enum RiderStatus {
  */
 export enum NotificationType {
   SHIPMENT_ASSIGNED = "shipment_assigned",
+  /** Admin alert when a shipment offer is sent to a rider (reassign if needed). */
+  SHIPMENT_OFFERED = "shipment_offered",
   RIDER_ACCEPTED_SHIPMENT = "rider_accepted_shipment",
   DELIVERY_COMPLETE = "delivery_complete",
   COMPLAINT_SUBMITTED = "complaint_submitted",

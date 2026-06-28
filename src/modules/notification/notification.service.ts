@@ -64,6 +64,39 @@ export class NotificationService {
     return dto;
   }
 
+  async notifyAdminsShipmentOffered(params: {
+    shipmentId: string;
+    riderName?: string;
+  }): Promise<void> {
+    try {
+      const admins = await User.find({ role: "admin" }).select("_id").lean().exec();
+      if (admins.length === 0) return;
+
+      const title = "Shipment offered to rider";
+      const message =
+        params.riderName?.trim()
+          ? `Offer sent to ${params.riderName.trim()}. Open the shipment to reassign if needed.`
+          : "A shipment offer was sent to a rider. Open the shipment to reassign if needed.";
+
+      await Promise.all(
+        admins.map((admin) =>
+          this.createForUser(String(admin._id), {
+            type: NotificationType.SHIPMENT_OFFERED,
+            title,
+            message,
+            relatedShipmentId: params.shipmentId,
+          })
+        )
+      );
+    } catch (e) {
+      logger.error("Failed to notify admins of shipment offer", {
+        message: e instanceof Error ? e.message : String(e),
+        shipmentId: params.shipmentId,
+        riderName: params.riderName,
+      });
+    }
+  }
+
   async notifyAdminsNewComplaint(params: {
     complaintId: string;
     reporterType: string;
