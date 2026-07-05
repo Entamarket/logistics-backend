@@ -6,6 +6,7 @@ import { Feedback } from "../../shared/models/Feedback";
 import { RiderStatus, ShipmentStatus, UserAccountStatus } from "../../shared/lib/enums";
 import { RiderService } from "../rider/rider.service";
 import { ShipmentService, CreateShipmentBody } from "../shipment/shipment.service";
+import { hasDeliveryProof, getDeliveryProofSignedUrl } from "../../shared/lib/s3.service";
 
 export interface MonthlyRevenueDto {
   yearMonth: string;
@@ -147,6 +148,11 @@ export interface AdminShipmentDetail extends AdminShipmentListItem {
   declinedRiderCount: number;
   createdByAdmin?: boolean;
   createdByAdminUser?: AdminClientDto | null;
+  deliveryProofUploadedAt?: string;
+  senderConfirmedReceipt?: boolean;
+  senderConfirmedReceiptAt?: string;
+  hasDeliveryProof?: boolean;
+  deliveryProofImageUrl?: string | null;
   updatedAt: string;
 }
 
@@ -320,6 +326,10 @@ type PopulatedShipmentDoc = {
   paidAt?: Date;
   createdByAdmin?: boolean;
   createdByAdminUserId?: PopulatedUser | Types.ObjectId | null;
+  deliveryProofImageKey?: string;
+  deliveryProofUploadedAt?: Date;
+  senderConfirmedReceipt?: boolean;
+  senderConfirmedReceiptAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -442,6 +452,14 @@ function mapDetail(doc: PopulatedShipmentDoc): AdminShipmentDetail {
     declinedRiderCount: doc.declinedRiderIds?.length ?? 0,
     createdByAdmin: Boolean(doc.createdByAdmin),
     createdByAdminUser: mapClient(doc.createdByAdminUserId),
+    deliveryProofUploadedAt: toIso(doc.deliveryProofUploadedAt),
+    senderConfirmedReceipt: Boolean(doc.senderConfirmedReceipt),
+    senderConfirmedReceiptAt: toIso(doc.senderConfirmedReceiptAt),
+    hasDeliveryProof: hasDeliveryProof({
+      deliveryProofImageKey: doc.deliveryProofImageKey,
+      senderConfirmedReceipt: doc.senderConfirmedReceipt,
+    }),
+    deliveryProofImageUrl: null,
     updatedAt: new Date(doc.updatedAt).toISOString(),
   };
 }
@@ -802,7 +820,16 @@ export class AdminService {
       .lean()
       .exec()) as PopulatedShipmentDoc | null;
     if (!doc) return null;
-    return mapDetail(doc);
+    const detail = mapDetail(doc);
+    const key = doc.deliveryProofImageKey?.trim();
+    if (key) {
+      try {
+        detail.deliveryProofImageUrl = await getDeliveryProofSignedUrl(key);
+      } catch {
+        detail.deliveryProofImageUrl = null;
+      }
+    }
+    return detail;
   }
 
   async listAvailableRiders(): Promise<AdminRiderDto[]> {

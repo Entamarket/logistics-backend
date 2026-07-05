@@ -105,6 +105,40 @@ export const swaggerComponents = {
           type: "array",
           items: { $ref: "#/components/schemas/TimelineEntry" },
         },
+        createdByAdmin: {
+          type: "boolean",
+          example: false,
+          description: "True when an admin created the shipment (sender shown as ADMIN to riders)",
+        },
+        deliveryProofUploadedAt: {
+          type: "string",
+          format: "date-time",
+          nullable: true,
+          description: "When the assigned rider uploaded a delivery photo",
+        },
+        senderConfirmedReceipt: {
+          type: "boolean",
+          example: false,
+          description: "True when the client owner confirmed the recipient received the package",
+        },
+        senderConfirmedReceiptAt: {
+          type: "string",
+          format: "date-time",
+          nullable: true,
+        },
+        hasDeliveryProof: {
+          type: "boolean",
+          example: false,
+          description:
+            "True when a delivery photo exists and/or the sender confirmed receipt. Required before mark delivered.",
+        },
+        deliveryProofImageUrl: {
+          type: "string",
+          format: "uri",
+          nullable: true,
+          description:
+            "Presigned S3 read URL for the delivery photo (~1 hour expiry). Generated on read, not stored in the database.",
+        },
         createdAt: { type: "string", format: "date-time" },
         updatedAt: { type: "string", format: "date-time" },
       },
@@ -267,7 +301,48 @@ export const swaggerComponents = {
             phone: { type: "string" },
           },
         },
+        hasDeliveryProof: {
+          type: "boolean",
+          example: false,
+          description: "True when a delivery photo exists and/or the sender confirmed receipt",
+        },
+        deliveryProofUploadedAt: { type: "string", format: "date-time", nullable: true },
+        senderConfirmedReceipt: { type: "boolean", example: false },
+        senderConfirmedReceiptAt: { type: "string", format: "date-time", nullable: true },
+        deliveryProofImageUrl: {
+          type: "string",
+          format: "uri",
+          nullable: true,
+          description: "Presigned S3 read URL (~1 hour expiry)",
+        },
       },
+    },
+    AdminShipmentDetail: {
+      allOf: [
+        { $ref: "#/components/schemas/AdminShipmentListItem" },
+        {
+          type: "object",
+          properties: {
+            senderDetails: { $ref: "#/components/schemas/ContactDetails" },
+            recipientDetails: { $ref: "#/components/schemas/ContactDetails" },
+            packageDetails: { $ref: "#/components/schemas/PackageDetails" },
+            timeline: {
+              type: "array",
+              items: { $ref: "#/components/schemas/TimelineEntry" },
+            },
+            pickupWindowStart: { type: "string", format: "date-time", nullable: true },
+            pickupWindowEnd: { type: "string", format: "date-time", nullable: true },
+            pickupLongitude: { type: "number", nullable: true },
+            pickupLatitude: { type: "number", nullable: true },
+            recipientLongitude: { type: "number", nullable: true },
+            recipientLatitude: { type: "number", nullable: true },
+            riderResponseDeadline: { type: "string", format: "date-time", nullable: true },
+            declinedRiderCount: { type: "integer", example: 0 },
+            createdByAdmin: { type: "boolean", example: false },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+      ],
     },
     AdminShipmentExportItem: {
       allOf: [

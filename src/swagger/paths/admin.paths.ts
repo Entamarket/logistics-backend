@@ -362,14 +362,14 @@ export const adminPaths = {
       parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
       responses: {
         "200": {
-          description: "Full shipment with client and rider",
+          description: "Full shipment with client, rider, and delivery proof fields",
           content: {
             "application/json": {
               schema: {
                 type: "object",
                 properties: {
                   success: { type: "boolean", example: true },
-                  data: { $ref: "#/components/schemas/AdminShipmentListItem" },
+                  data: { $ref: "#/components/schemas/AdminShipmentDetail" },
                 },
               },
             },

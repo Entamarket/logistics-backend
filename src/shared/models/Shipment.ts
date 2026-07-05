@@ -63,6 +63,12 @@ export interface IShipment extends Document {
   createdByAdmin?: boolean;
   /** Admin user who created this shipment (admin create path). */
   createdByAdminUserId?: Types.ObjectId | null;
+  /** S3 object key for rider-uploaded delivery proof photo. */
+  deliveryProofImageKey?: string;
+  deliveryProofUploadedAt?: Date;
+  senderConfirmedReceipt?: boolean;
+  senderConfirmedReceiptAt?: Date;
+  senderConfirmedByUserId?: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -164,6 +170,11 @@ const shipmentSchema = new Schema<IShipment>(
     packageDetails: { type: packageDetailsSchema, required: true },
     createdByAdmin: { type: Boolean, default: false },
     createdByAdminUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    deliveryProofImageKey: { type: String, trim: true, default: "" },
+    deliveryProofUploadedAt: { type: Date },
+    senderConfirmedReceipt: { type: Boolean, default: false },
+    senderConfirmedReceiptAt: { type: Date },
+    senderConfirmedByUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
   },
   { timestamps: true }
 );

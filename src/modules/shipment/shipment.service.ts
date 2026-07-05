@@ -21,6 +21,12 @@ import {
 } from "../../shared/lib/shipment-pricing";
 import { drivingDistanceMeters, geocodeAddress } from "../../shared/lib/google-maps.service";
 import {
+  deleteDeliveryProofObject,
+  getDeliveryProofSignedUrl,
+  hasDeliveryProof,
+  uploadDeliveryProof as uploadToS3,
+} from "../../shared/lib/s3.service";
+import {
   generatePaymentReference,
   getPaystackPublicKey,
   initializeTransaction,
@@ -637,6 +643,12 @@ export class ShipmentService {
       throw new Error("Shipment cannot be marked delivered from its current status");
     }
 
+    if (!hasDeliveryProof(shipment)) {
+      throw new Error(
+        "Delivery proof required: upload a photo of the recipient with the package, or wait for the sender to confirm receipt."
+      );
+    }
+
     shipment.status = ShipmentStatus.DELIVERED;
     shipment.timeline.push({ status: ShipmentStatus.DELIVERED, timestamp: new Date() });
     await shipment.save();
@@ -760,12 +772,12 @@ export class ShipmentService {
     return updated;
   }
 
-  async findByUserId(userId: string): Promise<IShipment[]> {
+  async findByUserId(userId: string): Promise<Record<string, unknown>[]> {
     const list = await Shipment.find({ userId: new Types.ObjectId(userId) })
       .sort({ createdAt: -1 })
       .lean()
       .exec();
-    return list as unknown as IShipment[];
+    return this.enrichShipmentResponses(list as unknown as IShipment[]);
   }
 
   /**
@@ -775,7 +787,7 @@ export class ShipmentService {
   async findShipmentsForRiderUser(
     authUserId: string,
     scope: "active" | "history" | "all"
-  ): Promise<IShipment[] | null> {
+  ): Promise<Record<string, unknown>[] | null> {
     await this.processExpiredRiderOffers();
     const rider = await this.riderService.findByUserId(authUserId);
     if (!rider) {
@@ -799,7 +811,7 @@ export class ShipmentService {
         .sort({ updatedAt: -1 })
         .lean()
         .exec();
-      return list as unknown as IShipment[];
+      return this.enrichShipmentResponses(list as unknown as IShipment[]);
     }
 
     if (scope === "history") {
@@ -810,11 +822,11 @@ export class ShipmentService {
         .sort({ createdAt: -1 })
         .lean()
         .exec();
-      return list as unknown as IShipment[];
+      return this.enrichShipmentResponses(list as unknown as IShipment[]);
     }
 
     const list = await Shipment.find(base).sort({ createdAt: -1 }).lean().exec();
-    return list as unknown as IShipment[];
+    return this.enrichShipmentResponses(list as unknown as IShipment[]);
   }
 
   /**
@@ -1268,5 +1280,104 @@ export class ShipmentService {
     }
 
     await this.markShipmentPaidAndFulfill(shipment._id.toString(), reference);
+  }
+
+  private shipmentToPlain(shipment: IShipment | Record<string, unknown>): Record<string, unknown> {
+    const doc = shipment as IShipment & { toObject?: () => Record<string, unknown> };
+    if (typeof doc.toObject === "function") {
+      return doc.toObject();
+    }
+    return { ...(shipment as Record<string, unknown>) };
+  }
+
+  async enrichShipmentResponse(shipment: IShipment | Record<string, unknown>): Promise<Record<string, unknown>> {
+    const plain = this.shipmentToPlain(shipment);
+    const key =
+      typeof plain.deliveryProofImageKey === "string" ? plain.deliveryProofImageKey.trim() : "";
+    let deliveryProofImageUrl: string | null = null;
+    if (key) {
+      try {
+        deliveryProofImageUrl = await getDeliveryProofSignedUrl(key);
+      } catch (e) {
+        logger.warn("Failed to sign delivery proof URL", {
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+    return {
+      ...plain,
+      hasDeliveryProof: hasDeliveryProof({
+        deliveryProofImageKey: key || undefined,
+        senderConfirmedReceipt: Boolean(plain.senderConfirmedReceipt),
+      }),
+      deliveryProofImageUrl,
+    };
+  }
+
+  async enrichShipmentResponses(shipments: IShipment[]): Promise<Record<string, unknown>[]> {
+    return Promise.all(shipments.map((s) => this.enrichShipmentResponse(s)));
+  }
+
+  private static readonly DELIVERY_PROOF_UPLOAD_STATUSES: string[] = [
+    ShipmentStatus.RIDER_ASSIGNED,
+    ShipmentStatus.PICKED_UP,
+    ShipmentStatus.IN_TRANSIT,
+  ];
+
+  private static readonly SENDER_CONFIRM_STATUSES: string[] = [
+    ShipmentStatus.RIDER_ASSIGNED,
+    ShipmentStatus.PICKED_UP,
+    ShipmentStatus.IN_TRANSIT,
+  ];
+
+  async uploadDeliveryProof(
+    shipmentId: string,
+    authUserId: string,
+    buffer: Buffer,
+    contentType: string
+  ): Promise<Record<string, unknown>> {
+    const shipment = await this.assertAssignedRiderUser(shipmentId, authUserId);
+    if (shipment.status === ShipmentStatus.DELIVERED || shipment.status === ShipmentStatus.CANCELLED) {
+      throw new Error("Cannot upload delivery proof for a completed shipment");
+    }
+    if (!ShipmentService.DELIVERY_PROOF_UPLOAD_STATUSES.includes(shipment.status)) {
+      throw new Error("Delivery proof can only be uploaded while the shipment is with the rider");
+    }
+    const oldKey = shipment.deliveryProofImageKey?.trim();
+    const { key } = await uploadToS3(shipmentId, buffer, contentType);
+    shipment.deliveryProofImageKey = key;
+    shipment.deliveryProofUploadedAt = new Date();
+    await shipment.save();
+    if (oldKey && oldKey !== key) {
+      void deleteDeliveryProofObject(oldKey);
+    }
+    return this.enrichShipmentResponse(shipment);
+  }
+
+  async confirmSenderReceipt(shipmentId: string, authUserId: string): Promise<Record<string, unknown>> {
+    const shipment = await Shipment.findById(shipmentId).exec();
+    if (!shipment) {
+      throw new Error("Shipment not found");
+    }
+    if (!shipment.userId) {
+      throw new Error("Sender confirmation is not available for admin account shipments");
+    }
+    if (shipment.userId.toString() !== authUserId) {
+      throw new Error("Not authorized to confirm receipt for this shipment");
+    }
+    if (shipment.status === ShipmentStatus.DELIVERED || shipment.status === ShipmentStatus.CANCELLED) {
+      throw new Error("Cannot confirm receipt for a completed shipment");
+    }
+    if (!ShipmentService.SENDER_CONFIRM_STATUSES.includes(shipment.status)) {
+      throw new Error("Receipt can only be confirmed while the shipment is in progress");
+    }
+    if (shipment.senderConfirmedReceipt) {
+      return this.enrichShipmentResponse(shipment);
+    }
+    shipment.senderConfirmedReceipt = true;
+    shipment.senderConfirmedReceiptAt = new Date();
+    shipment.senderConfirmedByUserId = new Types.ObjectId(authUserId);
+    await shipment.save();
+    return this.enrichShipmentResponse(shipment);
   }
 }

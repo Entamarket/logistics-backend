@@ -391,9 +391,93 @@ export const shipmentPaths = {
     patch: {
       tags: ["Shipments"],
       summary: "Mark delivered (assigned rider or admin)",
+      description:
+        "Requires at least one delivery proof: a rider-uploaded photo and/or sender confirmation (`hasDeliveryProof` must be true). Admin-only shipments (no client owner) require a photo; sender confirmation is not available.",
       security: cookieSecurity,
       parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
-      responses: shipmentResponses,
+      responses: {
+        ...shipmentResponses,
+        "400": {
+          description: "Missing delivery proof or invalid shipment status",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+      },
+    },
+  },
+  "/api/shipments/{id}/delivery-proof": {
+    post: {
+      tags: ["Shipments"],
+      summary: "Upload delivery proof photo (assigned rider)",
+      description:
+        "Upload a photo of the recipient with the package to S3. Allowed while status is `rider_assigned`, `picked_up`, or `in_transit`. Replaces any previous photo. Returns enriched shipment including `deliveryProofImageUrl` (presigned, ~1h). Max 5 MB; JPEG, PNG, or WebP.",
+      security: cookieSecurity,
+      parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
+      requestBody: {
+        required: true,
+        content: {
+          "multipart/form-data": {
+            schema: {
+              type: "object",
+              required: ["photo"],
+              properties: {
+                photo: {
+                  type: "string",
+                  format: "binary",
+                  description: "Delivery proof image (JPEG, PNG, or WebP; max 5 MB)",
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Photo uploaded; shipment includes presigned `deliveryProofImageUrl`",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string", example: "Delivery proof uploaded" },
+                  data: { $ref: "#/components/schemas/Shipment" },
+                },
+              },
+            },
+          },
+        },
+        "400": {
+          description: "Missing file, invalid image, or invalid shipment status",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "403": {
+          description: "Rider access required or not the assigned rider",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "404": { description: "Shipment not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/shipments/{id}/confirm-receipt": {
+    patch: {
+      tags: ["Shipments"],
+      summary: "Confirm recipient received package (client owner)",
+      description:
+        "Shipment owner (`userId`) confirms the recipient received the package. Enables the rider to mark delivered without a photo. Not available for admin-only shipments (`userId` null). Allowed while status is `rider_assigned`, `picked_up`, or `in_transit`.",
+      security: cookieSecurity,
+      parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
+      responses: {
+        ...shipmentResponses,
+        "400": {
+          description: "Admin-only shipment, already confirmed, or invalid status",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "403": {
+          description: "Not the shipment owner",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "404": { description: "Shipment not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
     },
   },
 };

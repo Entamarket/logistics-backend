@@ -275,10 +275,11 @@ export class ShipmentController {
         return;
       }
       const shipment = await shipmentService.markDelivered(id, userId, role);
+      const data = await shipmentService.enrichShipmentResponse(shipment);
       res.status(200).json({
         success: true,
         message: "Shipment marked as delivered",
-        data: shipment,
+        data,
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Error updating shipment";
@@ -461,6 +462,74 @@ export class ShipmentController {
         success: false,
         message,
       });
+    }
+  }
+
+  async uploadDeliveryProof(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (req.user?.role !== "rider") {
+        res.status(403).json({ success: false, message: "Rider access required" });
+        return;
+      }
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ success: false, message: "Photo file is required (field name: photo)" });
+        return;
+      }
+      const data = await shipmentService.uploadDeliveryProof(
+        id,
+        userId,
+        file.buffer,
+        file.mimetype
+      );
+      res.status(200).json({
+        success: true,
+        message: "Delivery proof uploaded",
+        data,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error uploading delivery proof";
+      const lower = message.toLowerCase();
+      const status =
+        lower.includes("not found") ? 404 : lower.includes("not authorized") ? 403 : 400;
+      res.status(status).json({ success: false, message });
+    }
+  }
+
+  async confirmSenderReceipt(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Shipment id is required" });
+        return;
+      }
+      const data = await shipmentService.confirmSenderReceipt(id, userId);
+      res.status(200).json({
+        success: true,
+        message: "Recipient receipt confirmed",
+        data,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error confirming receipt";
+      const lower = message.toLowerCase();
+      const status =
+        lower.includes("not found") ? 404 : lower.includes("not authorized") ? 403 : 400;
+      res.status(status).json({ success: false, message });
     }
   }
 }
