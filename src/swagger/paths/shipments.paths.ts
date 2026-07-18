@@ -371,6 +371,8 @@ export const shipmentPaths = {
     patch: {
       tags: ["Shipments"],
       summary: "Accept rider offer",
+      description:
+        "Accepts the current offer. For a mid-delivery reassignment offer, restores the shipment to its prior stage (`rider_assigned`, `picked_up`, or `in_transit`) instead of always starting at `rider_assigned`. The accepting rider becomes the current/final rider for the shipment.",
       security: cookieSecurity,
       parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
       responses: shipmentResponses,
@@ -381,7 +383,7 @@ export const shipmentPaths = {
       tags: ["Shipments"],
       summary: "Reject rider offer",
       description:
-        "Reassigns to the next nearest rider using pickup GPS when set, otherwise geocoded sender address.",
+        "Reassigns to the next nearest rider using pickup GPS when set, otherwise geocoded sender address. If this was a mid-delivery reassignment, the saved resume stage is preserved for the next offer.",
       security: cookieSecurity,
       parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
       responses: shipmentResponses,

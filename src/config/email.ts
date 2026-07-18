@@ -29,7 +29,8 @@ export const sendEmail = async (
   to: string,
   subject: string,
   html: string,
-  text?: string
+  text?: string,
+  options?: { replyTo?: string }
 ): Promise<void> => {
   if (!process.env.MAIL_HOST || !process.env.MAIL_USER) {
     logger.warn("Mail not configured (MAIL_HOST or MAIL_USER missing), skipping send", { to, subject });
@@ -44,6 +45,7 @@ export const sendEmail = async (
       subject,
       text,
       html,
+      ...(options?.replyTo ? { replyTo: options.replyTo } : {}),
     };
 
     const info = await transporter.sendMail(mailOptions);
@@ -51,6 +53,93 @@ export const sendEmail = async (
   } catch (error) {
     logger.error("Error sending email", { error, to });
     throw new Error("Failed to send email");
+  }
+};
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Notify MAIL_USER about a landing-page contact form submission.
+ * Returns "sent" | "skipped" | "failed" so callers can persist delivery status.
+ */
+export const sendContactMessageNotificationEmail = async (params: {
+  name: string;
+  email: string;
+  phone: string;
+  subject: string;
+  message: string;
+}): Promise<"sent" | "skipped" | "failed"> => {
+  const to = process.env.MAIL_USER?.trim();
+  if (!process.env.MAIL_HOST || !to) {
+    logger.warn("Mail not configured; skipping contact message notification", {
+      hasHost: Boolean(process.env.MAIL_HOST),
+      hasUser: Boolean(to),
+    });
+    return "skipped";
+  }
+
+  const displaySubject = params.subject.trim() || "Entamarket Logistics inquiry";
+  const mailSubject = `[Contact] ${displaySubject}`;
+  const safeName = escapeHtml(params.name);
+  const safeEmail = escapeHtml(params.email);
+  const safePhone = escapeHtml(params.phone);
+  const safeSubject = escapeHtml(displaySubject);
+  const safeMessage = escapeHtml(params.message).replace(/\n/g, "<br>");
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Contact message</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 640px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px;">
+        <h2 style="color: #81007f; text-align: center; margin-top: 0;">New contact form message</h2>
+        <div style="background-color: #fff; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <p style="margin: 0 0 8px 0;"><strong>Name:</strong> ${safeName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Email:</strong> ${safeEmail}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Phone:</strong> ${safePhone}</p>
+          <p style="margin: 0 0 16px 0;"><strong>Subject:</strong> ${safeSubject}</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;">
+          <p style="margin: 0; white-space: pre-wrap;">${safeMessage}</p>
+        </div>
+        <p style="font-size: 12px; color: #666; text-align: center;">
+          Reply directly to this email to respond to ${safeEmail}.
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = [
+    "New contact form message",
+    "",
+    `Name: ${params.name}`,
+    `Email: ${params.email}`,
+    `Phone: ${params.phone}`,
+    `Subject: ${displaySubject}`,
+    "",
+    params.message,
+  ].join("\n");
+
+  try {
+    await sendEmail(to, mailSubject, html, text, { replyTo: params.email });
+    return "sent";
+  } catch (error) {
+    logger.error("Failed to send contact message notification email", {
+      error: error instanceof Error ? error.message : String(error),
+      to,
+    });
+    return "failed";
   }
 };
 

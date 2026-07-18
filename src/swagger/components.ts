@@ -139,6 +139,13 @@ export const swaggerComponents = {
           description:
             "Presigned S3 read URL for the delivery photo (~1 hour expiry). Generated on read, not stored in the database.",
         },
+        reassignmentResumeStatus: {
+          type: "string",
+          nullable: true,
+          enum: ["rider_assigned", "picked_up", "in_transit"],
+          description:
+            "Internal: when admin reassigns a mid-delivery shipment, the prior stage is stored here while status is temporarily awaiting_rider_response. Restored when the replacement rider accepts.",
+        },
         createdAt: { type: "string", format: "date-time" },
         updatedAt: { type: "string", format: "date-time" },
       },
@@ -204,6 +211,40 @@ export const swaggerComponents = {
         },
         createdAt: { type: "string", format: "date-time" },
         updatedAt: { type: "string", format: "date-time" },
+      },
+    },
+    RiderDailyEarningsBucket: {
+      type: "object",
+      properties: {
+        date: { type: "string", example: "2026-07-18", description: "Calendar day in Africa/Lagos (YYYY-MM-DD)" },
+        label: { type: "string", example: "Sat 18" },
+        deliveredCount: { type: "integer", example: 2 },
+        earningsNgn: { type: "integer", example: 1000, description: "deliveredCount × ratePerDelivery" },
+      },
+    },
+    RiderEarningsSummary: {
+      type: "object",
+      properties: {
+        ratePerDelivery: {
+          type: "integer",
+          example: 500,
+          description: "Fixed NGN paid to the rider per delivered shipment",
+        },
+        days: { type: "integer", example: 7 },
+        timezone: { type: "string", example: "Africa/Lagos" },
+        daily: {
+          type: "array",
+          items: { $ref: "#/components/schemas/RiderDailyEarningsBucket" },
+          description: "One entry per calendar day in the requested window, including zero-earning days",
+        },
+        periodDeliveredCount: { type: "integer", example: 5 },
+        periodEarningsNgn: { type: "integer", example: 2500 },
+        allTimeDeliveredCount: {
+          type: "integer",
+          example: 40,
+          description: "All delivered shipments currently credited to this rider (riderID)",
+        },
+        allTimeEarningsNgn: { type: "integer", example: 20000 },
       },
     },
     Notification: {
@@ -510,6 +551,31 @@ export const swaggerComponents = {
         },
       ],
     },
+    ContactMessage: {
+      type: "object",
+      properties: {
+        id: { type: "string", example: "664a1b2c3d4e5f6789012380" },
+        name: { type: "string", example: "Ada Okafor" },
+        email: { type: "string", format: "email", example: "ada@example.com" },
+        phone: { type: "string", example: "+2348012345678" },
+        subject: { type: "string", example: "Partnership inquiry" },
+        message: { type: "string", example: "I would like to discuss a logistics partnership." },
+        readAt: {
+          type: "string",
+          format: "date-time",
+          nullable: true,
+          description: "Set when an admin opens the message detail",
+        },
+        emailDeliveryStatus: {
+          type: "string",
+          enum: ["pending", "sent", "failed", "skipped"],
+          example: "sent",
+          description: "Whether the notification email to MAIL_USER was delivered",
+        },
+        createdAt: { type: "string", format: "date-time" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+    },
     RiderMonthlyPerformance: {
       type: "object",
       properties: {
@@ -667,6 +733,12 @@ export const swaggerComponents = {
       in: "path",
       required: true,
       schema: { type: "string", example: "664a1b2c3d4e5f6789012370" },
+    },
+    ContactMessageId: {
+      name: "id",
+      in: "path",
+      required: true,
+      schema: { type: "string", example: "664a1b2c3d4e5f6789012380" },
     },
   },
 };

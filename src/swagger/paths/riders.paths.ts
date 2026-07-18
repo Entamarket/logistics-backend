@@ -30,6 +30,48 @@ export const riderPaths = {
       },
     },
   },
+  "/api/riders/me/earnings": {
+    get: {
+      tags: ["Riders"],
+      summary: "Get current rider daily and all-time earnings",
+      description:
+        "Returns earnings for the authenticated rider. Each delivered shipment whose current riderID is this rider earns a fixed ₦500. Daily buckets use Africa/Lagos calendar days based on the delivered timeline timestamp (fallback: updatedAt). Reassigned deliveries are credited to the final rider only.",
+      security: cookieSecurity,
+      parameters: [
+        {
+          name: "days",
+          in: "query",
+          required: false,
+          schema: { type: "integer", minimum: 1, maximum: 31, default: 7 },
+          description: "Number of calendar days to include in the daily series (default 7)",
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Earnings summary",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/RiderEarningsSummary" },
+                },
+              },
+            },
+          },
+        },
+        "403": {
+          description: "Rider access required",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "404": {
+          description: "Rider profile not found",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+      },
+    },
+  },
   "/api/riders/me/location": {
     patch: {
       tags: ["Riders"],

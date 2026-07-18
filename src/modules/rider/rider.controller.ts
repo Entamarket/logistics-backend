@@ -119,6 +119,32 @@ export class RiderController {
     }
   }
 
+  async getMyEarnings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (req.user?.role !== "rider") {
+        res.status(403).json({ success: false, message: "Rider access required" });
+        return;
+      }
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const rawDays =
+        typeof req.query.days === "string" ? parseInt(req.query.days, 10) : 7;
+      const days = Number.isFinite(rawDays) ? rawDays : 7;
+      const data = await riderService.getEarningsForUser(userId, days);
+      if (!data) {
+        res.status(404).json({ success: false, message: "Rider profile not found" });
+        return;
+      }
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching earnings";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
   async updateMyAvailability(req: AuthRequest, res: Response): Promise<void> {
     try {
       if (req.user?.role !== "rider") {

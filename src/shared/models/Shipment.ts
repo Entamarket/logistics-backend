@@ -69,6 +69,11 @@ export interface IShipment extends Document {
   senderConfirmedReceipt?: boolean;
   senderConfirmedReceiptAt?: Date;
   senderConfirmedByUserId?: Types.ObjectId | null;
+  /**
+   * When admin reassigns an active shipment, the prior stage is stored here
+   * while status is temporarily awaiting_rider_response for the replacement offer.
+   */
+  reassignmentResumeStatus?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -175,6 +180,10 @@ const shipmentSchema = new Schema<IShipment>(
     senderConfirmedReceipt: { type: Boolean, default: false },
     senderConfirmedReceiptAt: { type: Date },
     senderConfirmedByUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    reassignmentResumeStatus: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true }
 );

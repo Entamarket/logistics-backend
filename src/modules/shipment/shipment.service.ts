@@ -122,6 +122,12 @@ export class ShipmentService {
   private riderService = new RiderService();
   private notificationService = new NotificationService();
 
+  private static readonly REASSIGNMENT_RESUME_STATUSES: string[] = [
+    ShipmentStatus.RIDER_ASSIGNED,
+    ShipmentStatus.PICKED_UP,
+    ShipmentStatus.IN_TRANSIT,
+  ];
+
   private async notifyRiderShipmentAssigned(riderMongoId: string, shipmentId: string): Promise<void> {
     try {
       const rider = await Rider.findById(riderMongoId)
@@ -748,9 +754,17 @@ export class ShipmentService {
     if (!shipment.riderResponseDeadline || now > shipment.riderResponseDeadline) {
       throw new Error("This offer has expired");
     }
-    shipment.status = ShipmentStatus.RIDER_ASSIGNED;
+
+    const resumeStatus = shipment.reassignmentResumeStatus?.trim();
+    const nextStatus =
+      resumeStatus && ShipmentService.REASSIGNMENT_RESUME_STATUSES.includes(resumeStatus)
+        ? resumeStatus
+        : ShipmentStatus.RIDER_ASSIGNED;
+
+    shipment.status = nextStatus;
     shipment.riderResponseDeadline = undefined;
-    shipment.timeline.push({ status: ShipmentStatus.RIDER_ASSIGNED, timestamp: new Date() });
+    shipment.reassignmentResumeStatus = null;
+    shipment.timeline.push({ status: nextStatus, timestamp: new Date() });
     await shipment.save();
     if (shipment.userId) {
       void this.notifyClientRiderAccepted(shipment.userId.toString(), shipment._id.toString());
@@ -1039,10 +1053,15 @@ export class ShipmentService {
     ShipmentStatus.SCHEDULED,
     ShipmentStatus.SEARCHING_RIDER,
     ShipmentStatus.AWAITING_RIDER_RESPONSE,
+    ShipmentStatus.RIDER_ASSIGNED,
+    ShipmentStatus.PICKED_UP,
+    ShipmentStatus.IN_TRANSIT,
   ];
 
   /**
-   * Admin assigns an available rider; rider must accept the offer (same flow as instant auto-match).
+   * Admin assigns or reassigns an available rider; rider must accept the offer.
+   * For active shipments (accepted / picked up / in transit), the prior stage is
+   * stored in reassignmentResumeStatus and restored when the replacement accepts.
    */
   async adminAssignRider(shipmentId: string, riderId: string): Promise<IShipment> {
     const shipment = await Shipment.findById(shipmentId).exec();
@@ -1056,6 +1075,40 @@ export class ShipmentService {
     const assignedRider = await this.riderService.findOnDutyRiderById(riderId);
     if (!assignedRider) {
       throw new Error("Rider is not available or does not meet assignment requirements");
+    }
+
+    const previousRiderId = shipment.riderID?.toString();
+    if (previousRiderId && previousRiderId === assignedRider._id.toString()) {
+      throw new Error("This rider is already assigned to the shipment");
+    }
+
+    // Preserve stage for mid-delivery reassignment (or keep an existing resume value
+    // when re-offering while already awaiting a replacement response).
+    if (ShipmentService.REASSIGNMENT_RESUME_STATUSES.includes(shipment.status)) {
+      shipment.reassignmentResumeStatus = shipment.status;
+    } else if (
+      shipment.status === ShipmentStatus.AWAITING_RIDER_RESPONSE &&
+      !shipment.reassignmentResumeStatus
+    ) {
+      // Initial offer path — no resume stage.
+    }
+
+    // Clear photo proof from the previous rider; keep sender confirmation.
+    const oldProofKey = shipment.deliveryProofImageKey?.trim();
+    if (oldProofKey) {
+      shipment.deliveryProofImageKey = "";
+      shipment.deliveryProofUploadedAt = undefined;
+      void deleteDeliveryProofObject(oldProofKey);
+    }
+
+    if (previousRiderId) {
+      const previousDeclined = (shipment.declinedRiderIds || []).map((id) =>
+        id instanceof Types.ObjectId ? id : new Types.ObjectId(String(id))
+      );
+      shipment.declinedRiderIds = uniqueRiderObjectIds([
+        ...previousDeclined,
+        new Types.ObjectId(previousRiderId),
+      ]);
     }
 
     shipment.riderID = assignedRider._id as Types.ObjectId;

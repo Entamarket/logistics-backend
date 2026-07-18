@@ -2,9 +2,11 @@ import { Response } from "express";
 import { AuthRequest } from "../../shared/middlewares/auth.middleware";
 import { AdminService } from "./admin.service";
 import { ComplaintService } from "../complaint/complaint.service";
+import { ContactService } from "../contact/contact.service";
 
 const adminService = new AdminService();
 const complaintService = new ComplaintService();
+const contactService = new ContactService();
 
 export class AdminController {
   async revenueSummary(req: AuthRequest, res: Response): Promise<void> {
@@ -401,6 +403,42 @@ export class AdminController {
       const message = error instanceof Error ? error.message : "Error updating complaint status";
       const code = message.includes("status must") ? 400 : message.includes("not found") ? 404 : 500;
       res.status(code).json({ success: false, message });
+    }
+  }
+
+  async listMessages(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const rawLimit =
+        typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : undefined;
+      const limit = rawLimit !== undefined && Number.isFinite(rawLimit) ? rawLimit : undefined;
+      const unreadOnly =
+        typeof req.query.unreadOnly === "string" &&
+        ["1", "true", "yes"].includes(req.query.unreadOnly.toLowerCase());
+      const data = await contactService.listForAdmin({ limit, unreadOnly });
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching messages";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
+  async getMessage(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        res.status(400).json({ success: false, message: "Message id is required" });
+        return;
+      }
+      const data = await contactService.getByIdForAdmin(id);
+      if (!data) {
+        res.status(404).json({ success: false, message: "Message not found" });
+        return;
+      }
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching message";
+      const status = message.toLowerCase().includes("invalid") ? 400 : 500;
+      res.status(status).json({ success: false, message });
     }
   }
 }

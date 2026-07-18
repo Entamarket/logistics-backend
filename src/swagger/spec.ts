@@ -27,6 +27,7 @@ export const openApiSpec = {
     { name: "Notifications", description: "In-app notifications" },
     { name: "Feedback", description: "Post-delivery ratings" },
     { name: "Complaints", description: "Client and rider complaints" },
+    { name: "Contact", description: "Public landing-page contact form" },
     { name: "Admin", description: "Admin dashboard APIs" },
     { name: "Payments", description: "Paystack webhooks and payment flows" },
   ],

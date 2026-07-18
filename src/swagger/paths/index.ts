@@ -4,6 +4,7 @@ import { riderPaths } from "./riders.paths";
 import { notificationPaths } from "./notifications.paths";
 import { feedbackPaths } from "./feedback.paths";
 import { complaintPaths } from "./complaints.paths";
+import { contactPaths } from "./contact.paths";
 import { adminPaths } from "./admin.paths";
 import { paymentPaths } from "./payments.paths";
 
@@ -34,6 +35,7 @@ export const openApiPaths = {
   ...notificationPaths,
   ...feedbackPaths,
   ...complaintPaths,
+  ...contactPaths,
   ...adminPaths,
   ...paymentPaths,
 };

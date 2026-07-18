@@ -316,7 +316,9 @@ export const adminPaths = {
   "/api/admin/shipments/{id}/assign": {
     patch: {
       tags: ["Admin"],
-      summary: "Assign shipment to on-duty rider",
+      summary: "Assign or reassign shipment to an on-duty rider",
+      description:
+        "Sends a timed offer that the rider must accept. Allowed when status is `pending`, `scheduled`, `searching_rider`, `awaiting_rider_response`, `rider_assigned`, `picked_up`, or `in_transit`. For mid-delivery reassignment (`rider_assigned` / `picked_up` / `in_transit`), the previous rider loses the job immediately, any rider photo proof is cleared, and the prior stage is restored when the replacement accepts. Cannot select the currently assigned rider. Not allowed for `delivered` or `cancelled`.",
       security: cookieSecurity,
       parameters: [{ $ref: "#/components/parameters/ShipmentId" }],
       requestBody: {
@@ -343,13 +345,16 @@ export const adminPaths = {
                 properties: {
                   success: { type: "boolean", example: true },
                   message: { type: "string", example: "Rider assigned; awaiting rider acceptance" },
-                  data: { $ref: "#/components/schemas/AdminShipmentListItem" },
+                  data: { $ref: "#/components/schemas/AdminShipmentDetail" },
                 },
               },
             },
           },
         },
-        "400": { description: "Rider not available or invalid state", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "400": {
+          description: "Rider not available, already assigned, or invalid state",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
         "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
       },
     },
@@ -645,6 +650,72 @@ export const adminPaths = {
           },
         },
         "404": { description: "Complaint not found", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/admin/messages": {
+    get: {
+      tags: ["Admin"],
+      summary: "List landing-page contact messages",
+      description: "Newest first. Used by the admin Messages inbox.",
+      security: cookieSecurity,
+      parameters: [
+        { name: "limit", in: "query", schema: { type: "integer", default: 100, maximum: 200 } },
+        {
+          name: "unreadOnly",
+          in: "query",
+          schema: { type: "boolean", default: false },
+          description: "When true, only messages with no readAt",
+        },
+      ],
+      responses: {
+        "200": {
+          description: "Contact message list",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { type: "array", items: { $ref: "#/components/schemas/ContactMessage" } },
+                },
+              },
+            },
+          },
+        },
+        "403": {
+          description: "Admin access required",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+      },
+    },
+  },
+  "/api/admin/messages/{id}": {
+    get: {
+      tags: ["Admin"],
+      summary: "Get contact message by id",
+      description: "Returns the full message and marks it read (sets readAt) on first open.",
+      security: cookieSecurity,
+      parameters: [{ $ref: "#/components/parameters/ContactMessageId" }],
+      responses: {
+        "200": {
+          description: "Contact message detail",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { $ref: "#/components/schemas/ContactMessage" },
+                },
+              },
+            },
+          },
+        },
+        "404": {
+          description: "Message not found",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
       },
     },
   },

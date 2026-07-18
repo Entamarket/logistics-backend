@@ -27,6 +27,9 @@ router.get("/complaints", (req, res) => adminController.listComplaints(req as Au
 router.patch("/complaints/:id/status", (req, res) => adminController.updateComplaintStatus(req as AuthRequest, res));
 router.get("/complaints/:id", (req, res) => adminController.getComplaint(req as AuthRequest, res));
 
+router.get("/messages", (req, res) => adminController.listMessages(req as AuthRequest, res));
+router.get("/messages/:id", (req, res) => adminController.getMessage(req as AuthRequest, res));
+
 router.get("/clients", (req, res) => adminController.listClients(req as AuthRequest, res));
 router.get("/clients/:id/activity", (req, res) => adminController.getClientActivity(req as AuthRequest, res));
 router.patch("/clients/:id/status", (req, res) => adminController.updateClientStatus(req as AuthRequest, res));

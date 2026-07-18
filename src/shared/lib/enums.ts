@@ -82,3 +82,11 @@ export enum ComplaintStatus {
   RESOLVED = "resolved",
 }
 
+/** Whether the contact-form notification email was delivered to MAIL_USER. */
+export enum ContactMessageEmailDeliveryStatus {
+  PENDING = "pending",
+  SENT = "sent",
+  FAILED = "failed",
+  SKIPPED = "skipped",
+}
+

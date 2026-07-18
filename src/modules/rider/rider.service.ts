@@ -10,6 +10,79 @@ import { broadcastToUser } from "../../realtime/wsHub";
 
 const NEAR_METERS_PRIMARY = 5000;
 const NEAR_METERS_FALLBACK = 10000;
+/** Fixed rider pay per completed delivery (NGN). */
+export const RIDER_EARNINGS_PER_DELIVERY_NGN = 500;
+const EARNINGS_TIMEZONE = "Africa/Lagos";
+
+export interface RiderDailyEarningsBucket {
+  date: string;
+  label: string;
+  deliveredCount: number;
+  earningsNgn: number;
+}
+
+export interface RiderEarningsSummary {
+  ratePerDelivery: number;
+  days: number;
+  timezone: string;
+  daily: RiderDailyEarningsBucket[];
+  periodDeliveredCount: number;
+  periodEarningsNgn: number;
+  allTimeDeliveredCount: number;
+  allTimeEarningsNgn: number;
+}
+
+type LeanDeliveredShipment = {
+  timeline?: { status: string; timestamp?: Date }[];
+  updatedAt?: Date;
+};
+
+function deliveredAtFromDoc(row: LeanDeliveredShipment): Date {
+  const tl = row.timeline;
+  if (tl?.length) {
+    const deliveredEntries = tl.filter((e) => e.status === ShipmentStatus.DELIVERED);
+    if (deliveredEntries.length) {
+      const last = deliveredEntries[deliveredEntries.length - 1];
+      if (last.timestamp) return new Date(last.timestamp);
+    }
+  }
+  return row.updatedAt ? new Date(row.updatedAt) : new Date();
+}
+
+function dateKeyInLagos(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: EARNINGS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+function lastNDayBucketsInLagos(n: number): { date: string; label: string }[] {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: EARNINGS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const labelFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: EARNINGS_TIMEZONE,
+    weekday: "short",
+    day: "numeric",
+  });
+  const todayKey = dateKeyInLagos(new Date());
+  const [y, m, d] = todayKey.split("-").map((p) => parseInt(p, 10));
+  const out: { date: string; label: string }[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    // Noon UTC keeps the calendar day stable for Africa/Lagos (UTC+1, no DST).
+    const utc = new Date(Date.UTC(y, m - 1, d - i, 12, 0, 0));
+    out.push({
+      date: formatter.format(utc),
+      label: labelFormatter.format(utc),
+    });
+  }
+  return out;
+}
 
 export interface CreateRiderBody {
   firstName: string;
@@ -276,5 +349,55 @@ export class RiderService {
       .populate("userId", "firstName lastName email phone")
       .sort({ updatedAt: -1 })
       .exec();
+  }
+
+  /**
+   * Daily and all-time earnings for the authenticated rider.
+   * Each delivered shipment credited to this rider (current riderID) earns a fixed rate.
+   */
+  async getEarningsForUser(userId: string, days = 7): Promise<RiderEarningsSummary | null> {
+    const rider = await Rider.findOne({ userId }).select("_id").lean().exec();
+    if (!rider?._id) return null;
+
+    const dayCount = Math.min(Math.max(Math.floor(days) || 7, 1), 31);
+    const buckets = lastNDayBucketsInLagos(dayCount);
+    const dayIndex = new Map(buckets.map((b, i) => [b.date, i]));
+    const counts = new Array(dayCount).fill(0);
+
+    const rows = (await Shipment.find({
+      riderID: rider._id,
+      status: ShipmentStatus.DELIVERED,
+    })
+      .select("timeline updatedAt")
+      .lean()
+      .exec()) as LeanDeliveredShipment[];
+
+    for (const row of rows) {
+      const deliveredAt = deliveredAtFromDoc(row);
+      const key = dateKeyInLagos(deliveredAt);
+      const idx = dayIndex.get(key);
+      if (idx !== undefined) counts[idx] += 1;
+    }
+
+    const daily: RiderDailyEarningsBucket[] = buckets.map((b, i) => ({
+      date: b.date,
+      label: b.label,
+      deliveredCount: counts[i],
+      earningsNgn: counts[i] * RIDER_EARNINGS_PER_DELIVERY_NGN,
+    }));
+
+    const periodDeliveredCount = counts.reduce((a: number, b: number) => a + b, 0);
+    const allTimeDeliveredCount = rows.length;
+
+    return {
+      ratePerDelivery: RIDER_EARNINGS_PER_DELIVERY_NGN,
+      days: dayCount,
+      timezone: EARNINGS_TIMEZONE,
+      daily,
+      periodDeliveredCount,
+      periodEarningsNgn: periodDeliveredCount * RIDER_EARNINGS_PER_DELIVERY_NGN,
+      allTimeDeliveredCount,
+      allTimeEarningsNgn: allTimeDeliveredCount * RIDER_EARNINGS_PER_DELIVERY_NGN,
+    };
   }
 }
