@@ -37,48 +37,74 @@ type LeanDeliveredShipment = {
   updatedAt?: Date;
 };
 
-function deliveredAtFromDoc(row: LeanDeliveredShipment): Date {
+function isValidDate(d: Date): boolean {
+  return d instanceof Date && !Number.isNaN(d.getTime());
+}
+
+function toValidDate(value: unknown): Date | null {
+  if (value == null) return null;
+  const d = value instanceof Date ? value : new Date(value as string | number);
+  return isValidDate(d) ? d : null;
+}
+
+function deliveredAtFromDoc(row: LeanDeliveredShipment): Date | null {
   const tl = row.timeline;
   if (tl?.length) {
     const deliveredEntries = tl.filter((e) => e.status === ShipmentStatus.DELIVERED);
     if (deliveredEntries.length) {
       const last = deliveredEntries[deliveredEntries.length - 1];
-      if (last.timestamp) return new Date(last.timestamp);
+      const fromTimeline = toValidDate(last.timestamp);
+      if (fromTimeline) return fromTimeline;
     }
   }
-  return row.updatedAt ? new Date(row.updatedAt) : new Date();
+  return toValidDate(row.updatedAt);
+}
+
+/** Calendar Y/M/D in Africa/Lagos via formatToParts (locale-independent). */
+function lagosYmdParts(d: Date): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: EARNINGS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const get = (type: Intl.DateTimeFormatPartTypes) => {
+    const raw = parts.find((p) => p.type === type)?.value;
+    const n = raw ? parseInt(raw, 10) : NaN;
+    if (!Number.isFinite(n)) {
+      throw new Error(`Could not resolve ${type} in ${EARNINGS_TIMEZONE}`);
+    }
+    return n;
+  };
+  return { year: get("year"), month: get("month"), day: get("day") };
 }
 
 function dateKeyInLagos(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  const { year, month, day } = lagosYmdParts(d);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function dayLabelInLagos(d: Date): string {
+  const weekday = new Intl.DateTimeFormat("en-US", {
     timeZone: EARNINGS_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+    weekday: "short",
   }).format(d);
+  const { day } = lagosYmdParts(d);
+  return `${weekday} ${day}`;
 }
 
 function lastNDayBucketsInLagos(n: number): { date: string; label: string }[] {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: EARNINGS_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const labelFormatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: EARNINGS_TIMEZONE,
-    weekday: "short",
-    day: "numeric",
-  });
-  const todayKey = dateKeyInLagos(new Date());
-  const [y, m, d] = todayKey.split("-").map((p) => parseInt(p, 10));
+  const today = lagosYmdParts(new Date());
   const out: { date: string; label: string }[] = [];
   for (let i = n - 1; i >= 0; i--) {
     // Noon UTC keeps the calendar day stable for Africa/Lagos (UTC+1, no DST).
-    const utc = new Date(Date.UTC(y, m - 1, d - i, 12, 0, 0));
+    const utc = new Date(Date.UTC(today.year, today.month - 1, today.day - i, 12, 0, 0));
+    if (!isValidDate(utc)) {
+      throw new Error("Failed to build earnings day bucket");
+    }
     out.push({
-      date: formatter.format(utc),
-      label: labelFormatter.format(utc),
+      date: dateKeyInLagos(utc),
+      label: dayLabelInLagos(utc),
     });
   }
   return out;
@@ -374,6 +400,7 @@ export class RiderService {
 
     for (const row of rows) {
       const deliveredAt = deliveredAtFromDoc(row);
+      if (!deliveredAt) continue;
       const key = dateKeyInLagos(deliveredAt);
       const idx = dayIndex.get(key);
       if (idx !== undefined) counts[idx] += 1;
