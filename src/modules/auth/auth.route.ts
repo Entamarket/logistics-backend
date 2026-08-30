@@ -31,6 +31,18 @@ router.get("/ws-token", authMiddleware, (req, res) => authController.getWsToken(
 
 router.get("/me", authMiddleware, (req, res) => authController.getMe(req as AuthRequest, res));
 router.patch("/me", authMiddleware, (req, res) => authController.updateMe(req as AuthRequest, res));
+router.post("/me/email/request", authMiddleware, (req, res) =>
+  authController.requestEmailChange(req as AuthRequest, res)
+);
+router.post("/me/email/confirm", authMiddleware, (req, res) =>
+  authController.confirmEmailChange(req as AuthRequest, res)
+);
+router.post("/me/email/resend", authMiddleware, (req, res) =>
+  authController.resendEmailChangeOTP(req as AuthRequest, res)
+);
+router.post("/me/password", authMiddleware, (req, res) =>
+  authController.changePassword(req as AuthRequest, res)
+);
 
 export default router;
 

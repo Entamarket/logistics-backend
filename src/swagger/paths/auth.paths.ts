@@ -317,6 +317,152 @@ export const authPaths = {
       },
     },
   },
+  "/api/auth/me/email/request": {
+    post: {
+      tags: ["Auth"],
+      summary: "Request email change (sends OTP to new email)",
+      description:
+        "Requires the current account password. Sends a verification OTP to the new email address. The email is not changed until confirmed.",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["newEmail", "currentPassword"],
+              properties: {
+                newEmail: { type: "string", format: "email", example: "new@example.com" },
+                currentPassword: { type: "string", example: "CurrentPass123" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "OTP sent",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: {
+                    type: "object",
+                    properties: { pendingEmail: { type: "string", example: "new@example.com" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "401": { description: "Auth required or wrong password", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/auth/me/email/confirm": {
+    post: {
+      tags: ["Auth"],
+      summary: "Confirm email change with OTP",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["otp"],
+              properties: {
+                otp: { type: "string", example: "123456" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Email updated",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: { $ref: "#/components/schemas/UserProfile" },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Invalid or expired OTP", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "401": { description: "Not authenticated", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/auth/me/email/resend": {
+    post: {
+      tags: ["Auth"],
+      summary: "Resend email-change OTP to pending new email",
+      security: cookieSecurity,
+      responses: {
+        "200": {
+          description: "OTP resent",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string" },
+                  data: {
+                    type: "object",
+                    properties: { pendingEmail: { type: "string", example: "new@example.com" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "No pending email change", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "401": { description: "Not authenticated", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/auth/me/password": {
+    post: {
+      tags: ["Auth"],
+      summary: "Change password while authenticated",
+      description: "Requires the current password. No OTP. New password must be at least 8 characters and different from the current one.",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["currentPassword", "newPassword"],
+              properties: {
+                currentPassword: { type: "string", example: "OldPass123" },
+                newPassword: { type: "string", minLength: 8, example: "NewPass123" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Password updated",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiSuccessMessage" } } },
+        },
+        "400": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "401": { description: "Auth required or wrong current password", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
   "/api/auth/ws-token": {
     get: {
       tags: ["Auth"],

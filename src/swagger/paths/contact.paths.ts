@@ -4,7 +4,7 @@ export const contactPaths = {
       tags: ["Contact"],
       summary: "Submit landing-page contact message (public)",
       description:
-        "Persists the message for the admin Messages inbox and emails the same content to `MAIL_USER`. No authentication required.",
+        "Persists the message for the admin Messages inbox and emails the same content to `MAIL_USER` via Resend. No authentication required.",
       requestBody: {
         required: true,
         content: {

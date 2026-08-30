@@ -384,5 +384,119 @@ export class AuthController {
       res.status(400).json({ success: false, message });
     }
   }
+
+  async requestEmailChange(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { newEmail, currentPassword } = req.body as {
+        newEmail?: string;
+        currentPassword?: string;
+      };
+      if (!newEmail || !currentPassword) {
+        res.status(400).json({
+          success: false,
+          message: "newEmail and currentPassword are required",
+        });
+        return;
+      }
+      const data = await authService.requestEmailChange(userId, { newEmail, currentPassword });
+      res.status(200).json({
+        success: true,
+        message: "A verification code has been sent to your new email address.",
+        data,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error requesting email change";
+      const status =
+        message === "User not found"
+          ? 404
+          : message === "Current password is incorrect"
+            ? 401
+            : 400;
+      res.status(status).json({ success: false, message });
+    }
+  }
+
+  async confirmEmailChange(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { otp } = req.body as { otp?: string };
+      if (!otp) {
+        res.status(400).json({ success: false, message: "otp is required" });
+        return;
+      }
+      const data = await authService.confirmEmailChange(userId, otp);
+      res.status(200).json({
+        success: true,
+        message: "Email updated successfully",
+        data,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error confirming email change";
+      res.status(message === "User not found" ? 404 : 400).json({ success: false, message });
+    }
+  }
+
+  async resendEmailChangeOTP(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const data = await authService.resendEmailChangeOTP(userId);
+      res.status(200).json({
+        success: true,
+        message: "A new verification code has been sent to your new email address.",
+        data,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error resending verification code";
+      res.status(message === "User not found" ? 404 : 400).json({ success: false, message });
+    }
+  }
+
+  async changePassword(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { currentPassword, newPassword } = req.body as {
+        currentPassword?: string;
+        newPassword?: string;
+      };
+      if (!currentPassword || !newPassword) {
+        res.status(400).json({
+          success: false,
+          message: "currentPassword and newPassword are required",
+        });
+        return;
+      }
+      await authService.changePassword(userId, { currentPassword, newPassword });
+      res.status(200).json({
+        success: true,
+        message: "Password updated successfully",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error changing password";
+      const status =
+        message === "User not found"
+          ? 404
+          : message === "Current password is incorrect"
+            ? 401
+            : 400;
+      res.status(status).json({ success: false, message });
+    }
+  }
 }
 

@@ -1,25 +1,14 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import { logger } from "../shared/lib/logger";
 
-/**
- * Create and configure nodemailer transporter
- */
-export const createTransporter = () => {
-  const transporter = nodemailer.createTransport({
-    host: process.env.MAIL_HOST,
-    port: parseInt(process.env.MAIL_PORT || "587"),
-    secure: false, // true for 465, false for other ports
-    auth: {
-      user: process.env.MAIL_USER,
-      pass: process.env.MAIL_PASS,
-    },
-  });
-
-  return transporter;
-};
+function getResendClient(): Resend | null {
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) return null;
+  return new Resend(apiKey);
+}
 
 /**
- * Send email using nodemailer
+ * Send email via Resend.
  * @param to - Recipient email address
  * @param subject - Email subject
  * @param html - Email HTML content
@@ -32,25 +21,36 @@ export const sendEmail = async (
   text?: string,
   options?: { replyTo?: string }
 ): Promise<void> => {
-  if (!process.env.MAIL_HOST || !process.env.MAIL_USER) {
-    logger.warn("Mail not configured (MAIL_HOST or MAIL_USER missing), skipping send", { to, subject });
-    return;
-  }
-  try {
-    const transporter = createTransporter();
-
-    const mailOptions = {
-      from: process.env.MAIL_FROM || process.env.MAIL_USER,
+  const from = process.env.MAIL_FROM?.trim();
+  const resend = getResendClient();
+  if (!resend || !from) {
+    logger.warn("Mail not configured (RESEND_API_KEY or MAIL_FROM missing), skipping send", {
       to,
       subject,
-      text,
-      html,
-      ...(options?.replyTo ? { replyTo: options.replyTo } : {}),
-    };
+      hasApiKey: Boolean(process.env.RESEND_API_KEY?.trim()),
+      hasFrom: Boolean(from),
+    });
+    return;
+  }
 
-    const info = await transporter.sendMail(mailOptions);
-    logger.info("Email sent successfully", { messageId: info.messageId, to });
+  try {
+    const { data, error } = await resend.emails.send({
+      from,
+      to,
+      subject,
+      html,
+      ...(text ? { text } : {}),
+      ...(options?.replyTo ? { replyTo: options.replyTo } : {}),
+    });
+
+    if (error) {
+      logger.error("Error sending email via Resend", { error, to, subject });
+      throw new Error("Failed to send email");
+    }
+
+    logger.info("Email sent successfully", { messageId: data?.id, to });
   } catch (error) {
+    if (error instanceof Error && error.message === "Failed to send email") throw error;
     logger.error("Error sending email", { error, to });
     throw new Error("Failed to send email");
   }
@@ -77,9 +77,9 @@ export const sendContactMessageNotificationEmail = async (params: {
   message: string;
 }): Promise<"sent" | "skipped" | "failed"> => {
   const to = process.env.MAIL_USER?.trim();
-  if (!process.env.MAIL_HOST || !to) {
+  if (!process.env.RESEND_API_KEY?.trim() || !to) {
     logger.warn("Mail not configured; skipping contact message notification", {
-      hasHost: Boolean(process.env.MAIL_HOST),
+      hasApiKey: Boolean(process.env.RESEND_API_KEY?.trim()),
       hasUser: Boolean(to),
     });
     return "skipped";
@@ -316,3 +316,58 @@ export const sendRiderCredentialsEmail = async (
   await sendEmail(email, subject, html, text);
 };
 
+/**
+ * Send OTP to confirm a requested email address change
+ */
+export const sendEmailChangeOTPEmail = async (
+  email: string,
+  otp: string,
+  firstName: string
+): Promise<void> => {
+  const subject = "Confirm Your New Email - Entamarket Logistics";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Confirm Email Change</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px;">
+        <h2 style="color: #333; text-align: center;">Confirm your new email</h2>
+        <p>Hello ${firstName},</p>
+        <p>We received a request to change the email address on your Entamarket Logistics account to <strong>${email}</strong>.</p>
+        <p>Please use the following verification code to confirm this change:</p>
+        <div style="background-color: #fff; padding: 20px; text-align: center; border-radius: 5px; margin: 20px 0;">
+          <h1 style="color: #81007f; font-size: 32px; letter-spacing: 5px; margin: 0;">${otp}</h1>
+        </div>
+        <p>This code will expire in 10 minutes.</p>
+        <p>If you didn't request this change, you can ignore this email. Your account email will remain unchanged.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="font-size: 12px; color: #666; text-align: center;">
+          © ${new Date().getFullYear()} Entamarket Logistics. All rights reserved.
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `
+    Hello ${firstName},
+
+    We received a request to change the email address on your Entamarket Logistics account to ${email}.
+
+    Please use the following verification code to confirm this change:
+
+    ${otp}
+
+    This code will expire in 10 minutes.
+
+    If you didn't request this change, you can ignore this email. Your account email will remain unchanged.
+
+    © ${new Date().getFullYear()} Entamarket Logistics. All rights reserved.
+  `;
+
+  await sendEmail(email, subject, html, text);
+};

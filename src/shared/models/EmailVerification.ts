@@ -5,6 +5,7 @@ export interface IEmailVerification extends Document {
   userId: Types.ObjectId;
   otpHash: string;
   purpose: string;
+  pendingEmail?: string;
   expiresAt: Date;
   attempts: number;
   createdAt: Date;
@@ -26,6 +27,11 @@ const emailVerificationSchema = new Schema<IEmailVerification>(
       required: [true, "Purpose is required"],
       enum: Object.values(EmailVerificationPurpose),
       default: EmailVerificationPurpose.EMAIL_VERIFICATION,
+    },
+    pendingEmail: {
+      type: String,
+      lowercase: true,
+      trim: true,
     },
     expiresAt: {
       type: Date,

@@ -4,6 +4,7 @@
 export enum EmailVerificationPurpose {
   EMAIL_VERIFICATION = "Email verification",
   PASSWORD_RESET = "Password reset",
+  EMAIL_CHANGE = "Email change",
 }
 
 /**
@@ -82,7 +83,7 @@ export enum ComplaintStatus {
   RESOLVED = "resolved",
 }
 
-/** Whether the contact-form notification email was delivered to MAIL_USER. */
+/** Whether the contact-form notification email was delivered to MAIL_USER via Resend. */
 export enum ContactMessageEmailDeliveryStatus {
   PENDING = "pending",
   SENT = "sent",

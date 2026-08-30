@@ -570,7 +570,7 @@ export const swaggerComponents = {
           type: "string",
           enum: ["pending", "sent", "failed", "skipped"],
           example: "sent",
-          description: "Whether the notification email to MAIL_USER was delivered",
+          description: "Whether the Resend notification email to MAIL_USER was delivered",
         },
         createdAt: { type: "string", format: "date-time" },
         updatedAt: { type: "string", format: "date-time" },

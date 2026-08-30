@@ -4,7 +4,7 @@ import { User, IUser } from "../../shared/models/User";
 import { EmailVerification } from "../../shared/models/EmailVerification";
 import { EmailVerificationPurpose, UserAccountStatus } from "../../shared/lib/enums";
 import type { StringValue } from "ms";
-import { sendOTPEmail, sendPasswordResetOTPEmail } from "../../config/email";
+import { sendOTPEmail, sendPasswordResetOTPEmail, sendEmailChangeOTPEmail } from "../../config/email";
 import { generateOTP } from "../../shared/lib/utils";
 import { logger } from "../../shared/lib/logger";
 
@@ -66,6 +66,15 @@ export interface UpdateProfileData {
   lastName: string;
   phone: string;
 }
+
+export interface RequestEmailChangeData {
+  newEmail: string;
+  currentPassword: string;
+}
+
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+const EMAIL_CHANGE_OTP_TTL_MS = 10 * 60 * 1000;
+const MAX_OTP_ATTEMPTS = 5;
 
 function toProfileDto(user: IUser): UserProfileDto {
   return {
@@ -487,5 +496,172 @@ export class AuthService {
     return toProfileDto(user);
   }
 
+  async requestEmailChange(
+    userId: string,
+    data: RequestEmailChangeData
+  ): Promise<{ pendingEmail: string }> {
+    const user = await User.findById(userId).exec();
+    if (!user) throw new Error("User not found");
+    if (!user.password) throw new Error("Current password is incorrect");
+
+    const currentPassword = data.currentPassword ?? "";
+    if (!currentPassword) throw new Error("Current password is required");
+
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) throw new Error("Current password is incorrect");
+
+    const newEmail = data.newEmail.trim().toLowerCase();
+    if (!newEmail) throw new Error("New email is required");
+    if (!EMAIL_RE.test(newEmail)) throw new Error("Please provide a valid email address");
+    if (newEmail === user.email.toLowerCase()) {
+      throw new Error("New email must be different from your current email");
+    }
+
+    const taken = await User.findOne({ email: newEmail, _id: { $ne: user._id } }).exec();
+    if (taken) throw new Error("An account with this email already exists");
+
+    await EmailVerification.deleteMany({
+      userId: user._id,
+      purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+    });
+
+    const otp = generateOTP();
+    const otpHash = await bcrypt.hash(otp, 10);
+    const expiresAt = new Date(Date.now() + EMAIL_CHANGE_OTP_TTL_MS);
+
+    await EmailVerification.create({
+      userId: user._id,
+      otpHash,
+      purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+      pendingEmail: newEmail,
+      expiresAt,
+      attempts: 0,
+    });
+
+    sendEmailChangeOTPEmail(newEmail, otp, user.firstName).catch((error) => {
+      logger.error("Failed to send email-change OTP", { error, email: newEmail, userId });
+    });
+
+    return { pendingEmail: newEmail };
+  }
+
+  async confirmEmailChange(userId: string, otp: string): Promise<UserProfileDto> {
+    const user = await User.findById(userId).exec();
+    if (!user) throw new Error("User not found");
+
+    const code = (otp ?? "").trim();
+    if (!code) throw new Error("Verification code is required");
+
+    const emailVerification = await EmailVerification.findOne({
+      userId: user._id,
+      purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+    }).exec();
+
+    if (!emailVerification?.pendingEmail) {
+      throw new Error("No email change request found. Please start again.");
+    }
+
+    if (emailVerification.expiresAt < new Date()) {
+      await EmailVerification.deleteOne({ _id: emailVerification._id });
+      throw new Error("Verification code has expired. Please request a new OTP.");
+    }
+
+    if (emailVerification.attempts >= MAX_OTP_ATTEMPTS) {
+      await EmailVerification.deleteOne({ _id: emailVerification._id });
+      throw new Error("Too many verification attempts. Please request a new OTP.");
+    }
+
+    emailVerification.attempts += 1;
+    await emailVerification.save();
+
+    const isOTPValid = await bcrypt.compare(code, emailVerification.otpHash);
+    if (!isOTPValid) {
+      if (emailVerification.attempts >= MAX_OTP_ATTEMPTS) {
+        await EmailVerification.deleteOne({ _id: emailVerification._id });
+        throw new Error("Too many verification attempts. Please request a new OTP.");
+      }
+      throw new Error("Invalid verification code");
+    }
+
+    const pendingEmail = emailVerification.pendingEmail.trim().toLowerCase();
+    const taken = await User.findOne({ email: pendingEmail, _id: { $ne: user._id } }).exec();
+    if (taken) {
+      await EmailVerification.deleteOne({ _id: emailVerification._id });
+      throw new Error("An account with this email already exists");
+    }
+
+    user.email = pendingEmail;
+    user.isEmailVerified = true;
+    await user.save();
+    await EmailVerification.deleteOne({ _id: emailVerification._id });
+
+    return toProfileDto(user);
+  }
+
+  async resendEmailChangeOTP(userId: string): Promise<{ pendingEmail: string }> {
+    const user = await User.findById(userId).exec();
+    if (!user) throw new Error("User not found");
+
+    const existing = await EmailVerification.findOne({
+      userId: user._id,
+      purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+    }).exec();
+
+    if (!existing?.pendingEmail) {
+      throw new Error("No email change request found. Please start again.");
+    }
+
+    const pendingEmail = existing.pendingEmail.trim().toLowerCase();
+    const taken = await User.findOne({ email: pendingEmail, _id: { $ne: user._id } }).exec();
+    if (taken) {
+      await EmailVerification.deleteOne({ _id: existing._id });
+      throw new Error("An account with this email already exists");
+    }
+
+    await EmailVerification.deleteOne({ _id: existing._id });
+
+    const otp = generateOTP();
+    const otpHash = await bcrypt.hash(otp, 10);
+    const expiresAt = new Date(Date.now() + EMAIL_CHANGE_OTP_TTL_MS);
+
+    await EmailVerification.create({
+      userId: user._id,
+      otpHash,
+      purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+      pendingEmail,
+      expiresAt,
+      attempts: 0,
+    });
+
+    sendEmailChangeOTPEmail(pendingEmail, otp, user.firstName).catch((error) => {
+      logger.error("Failed to resend email-change OTP", { error, email: pendingEmail, userId });
+    });
+
+    return { pendingEmail };
+  }
+
+  async changePassword(
+    userId: string,
+    data: { currentPassword: string; newPassword: string }
+  ): Promise<void> {
+    const user = await User.findById(userId).exec();
+    if (!user) throw new Error("User not found");
+    if (!user.password) throw new Error("Current password is incorrect");
+
+    const currentPassword = data.currentPassword ?? "";
+    const newPassword = data.newPassword ?? "";
+    if (!currentPassword) throw new Error("Current password is required");
+    if (!newPassword) throw new Error("New password is required");
+    if (newPassword.length < 8) throw new Error("Password must be at least 8 characters");
+
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) throw new Error("Current password is incorrect");
+
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    if (isSamePassword) throw new Error("New password must be different from your current password");
+
+    user.password = await bcrypt.hash(newPassword, 10);
+    await user.save();
+  }
 }
 
