@@ -28,11 +28,11 @@ export class AuthController {
     try {
       const { firstName, lastName, email, phone, password } = req.body;
 
-      // Validate required fields
-      if (!firstName || !lastName || !email || !phone || !password) {
+      // Validate required fields (phone is optional)
+      if (!firstName || !lastName || !email || !password) {
         res.status(400).json({
           success: false,
-          message: "All fields (firstName, lastName, email, phone, password) are required",
+          message: "firstName, lastName, email, and password are required",
         });
         return;
       }
@@ -67,20 +67,27 @@ export class AuthController {
 
   async login(req: Request, res: Response): Promise<void> {
     try {
-      const { email, password } = req.body;
+      const { email, phone, identifier, password } = req.body as {
+        email?: string;
+        phone?: string;
+        identifier?: string;
+        password?: string;
+      };
+
+      const loginId = (identifier ?? email ?? phone ?? "").trim();
 
       // Validate required fields
-      if (!email || !password) {
+      if (!loginId || !password) {
         res.status(400).json({
           success: false,
-          message: "Email and password are required",
+          message: "Email or phone number, and password are required",
         });
         return;
       }
 
       // Authenticate user
       const { user, token } = await authService.login({
-        email,
+        identifier: loginId,
         password,
       });
 
@@ -101,10 +108,15 @@ export class AuthController {
     } catch (error: any) {
       // Handle unverified email case
       if (error.message === "EMAIL_NOT_VERIFIED") {
+        const unverifiedEmail =
+          typeof error === "object" && error && "email" in error
+            ? String((error as { email?: string }).email ?? "")
+            : "";
         res.status(403).json({
           success: false,
           code: "EMAIL_NOT_VERIFIED",
           message: "Email not verified. An OTP has been sent to your email. Please verify your email to continue.",
+          ...(unverifiedEmail ? { data: { email: unverifiedEmail } } : {}),
         });
         return;
       }
@@ -112,7 +124,7 @@ export class AuthController {
       // Handle other errors
       res.status(401).json({
         success: false,
-        message: error.message || "Invalid email or password",
+        message: error.message || "Invalid email/phone or password",
       });
     }
   }

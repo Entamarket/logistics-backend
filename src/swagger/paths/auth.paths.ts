@@ -11,12 +11,16 @@ export const authPaths = {
           "application/json": {
             schema: {
               type: "object",
-              required: ["firstName", "lastName", "email", "phone", "password"],
+              required: ["firstName", "lastName", "email", "password"],
               properties: {
                 firstName: { type: "string", example: "Ada" },
                 lastName: { type: "string", example: "Okafor" },
                 email: { type: "string", format: "email", example: "ada@example.com" },
-                phone: { type: "string", example: "+2348012345678" },
+                phone: {
+                  type: "string",
+                  example: "+2348012345678",
+                  description: "Optional. When provided, must be unique.",
+                },
                 password: { type: "string", minLength: 8, example: "SecurePass123" },
               },
             },
@@ -55,16 +59,30 @@ export const authPaths = {
   "/api/auth/login": {
     post: {
       tags: ["Auth"],
-      summary: "Log in (sets httpOnly token cookie)",
+      summary: "Log in with email or phone + password (sets httpOnly token cookie)",
       requestBody: {
         required: true,
         content: {
           "application/json": {
             schema: {
               type: "object",
-              required: ["email", "password"],
+              required: ["password"],
               properties: {
-                email: { type: "string", example: "ada@example.com" },
+                identifier: {
+                  type: "string",
+                  example: "ada@example.com",
+                  description: "Email address or phone number",
+                },
+                email: {
+                  type: "string",
+                  example: "ada@example.com",
+                  description: "Alias for identifier (email or phone). Kept for compatibility.",
+                },
+                phone: {
+                  type: "string",
+                  example: "+2348012345678",
+                  description: "Alias for identifier when logging in with phone",
+                },
                 password: { type: "string", example: "SecurePass123" },
               },
             },

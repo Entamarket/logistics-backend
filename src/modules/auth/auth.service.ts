@@ -12,12 +12,13 @@ export interface SignUpData {
   firstName: string;
   lastName: string;
   email: string;
-  phone: string;
+  phone?: string;
   password: string;
 }
 
 export interface LoginData {
-  email: string;
+  /** Email address or phone number */
+  identifier: string;
   password: string;
 }
 
@@ -82,13 +83,21 @@ function toProfileDto(user: IUser): UserProfileDto {
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
-    phone: user.phone,
+    phone: user.phone ?? "",
     role: user.role,
     status: user.status || UserAccountStatus.ACTIVE,
     isEmailVerified: user.isEmailVerified,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };
+}
+
+function looksLikeEmail(value: string): boolean {
+  return value.includes("@");
+}
+
+function normalizePhone(value: string): string {
+  return value.trim().replace(/\s+/g, "");
 }
 
 export class AuthService {
@@ -110,10 +119,20 @@ export class AuthService {
   }
 
   async signUp(data: SignUpData): Promise<UserWithoutPassword> {
+    const email = data.email.trim().toLowerCase();
+    const phone = data.phone?.trim() ? normalizePhone(data.phone) : undefined;
+
     // Check if user already exists
-    const existingUser = await User.findOne({ email: data.email });
+    const existingUser = await User.findOne({ email });
     if (existingUser) {
       throw new Error("User with this email already exists");
+    }
+
+    if (phone) {
+      const existingPhone = await User.findOne({ phone });
+      if (existingPhone) {
+        throw new Error("User with this phone number already exists");
+      }
     }
 
     // Hash password
@@ -124,8 +143,8 @@ export class AuthService {
     const user = new User({
       firstName: data.firstName,
       lastName: data.lastName,
-      email: data.email,
-      phone: data.phone,
+      email,
+      ...(phone ? { phone } : {}),
       password: hashedPassword,
       role: "client",
       isEmailVerified: false,
@@ -155,8 +174,8 @@ export class AuthService {
     await emailVerification.save();
 
     // Send OTP email (don't await to avoid blocking the response)
-    sendOTPEmail(data.email, otp, data.firstName).catch((error) => {
-      logger.error("Failed to send OTP email", { error, email: data.email });
+    sendOTPEmail(email, otp, data.firstName).catch((error) => {
+      logger.error("Failed to send OTP email", { error, email });
       // Don't throw error - user is created, they can request OTP resend later
     });
 
@@ -168,20 +187,28 @@ export class AuthService {
   }
 
   async login(data: LoginData): Promise<LoginResponse> {
-    // Find user by email
-    const user = await User.findOne({ email: data.email });
+    const identifier = data.identifier.trim();
+    if (!identifier) {
+      throw new Error("Email or phone number is required");
+    }
+
+    // Find user by email or phone
+    const user = looksLikeEmail(identifier)
+      ? await User.findOne({ email: identifier.toLowerCase() })
+      : await User.findOne({ phone: normalizePhone(identifier) });
+
     if (!user) {
-      throw new Error("Invalid email or password");
+      throw new Error("Invalid email/phone or password");
     }
 
     // Compare password (only if user has a password)
     if (user.password) {
       const isPasswordValid = await bcrypt.compare(data.password, user.password);
       if (!isPasswordValid) {
-        throw new Error("Invalid email or password");
+        throw new Error("Invalid email/phone or password");
       }
     } else {
-      throw new Error("Invalid email or password");
+      throw new Error("Invalid email/phone or password");
     }
 
     if (user.role === "client") {
@@ -225,8 +252,10 @@ export class AuthService {
         logger.error("Failed to send OTP email", { error, email: user.email });
       });
 
-      // Throw error to indicate email not verified
-      throw new Error("EMAIL_NOT_VERIFIED");
+      // Throw error to indicate email not verified (include email for clients who logged in with phone)
+      const err = new Error("EMAIL_NOT_VERIFIED") as Error & { email: string };
+      err.email = user.email;
+      throw err;
     }
 
     // Remove password from returned user object
@@ -481,12 +510,17 @@ export class AuthService {
 
     const firstName = data.firstName.trim();
     const lastName = data.lastName.trim();
-    const phone = data.phone.trim();
+    const phone = normalizePhone(data.phone);
 
     if (!firstName) throw new Error("First name is required");
     if (!lastName) throw new Error("Last name is required");
     if (!phone) throw new Error("Phone number is required");
     if (phone.length < 6) throw new Error("Please enter a valid phone number");
+
+    if (phone !== (user.phone ?? "")) {
+      const taken = await User.findOne({ phone, _id: { $ne: user._id } }).exec();
+      if (taken) throw new Error("User with this phone number already exists");
+    }
 
     user.firstName = firstName;
     user.lastName = lastName;
