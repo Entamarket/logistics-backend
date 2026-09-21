@@ -2,7 +2,17 @@ import bcrypt from "bcrypt";
 import jwt, { SignOptions } from "jsonwebtoken";
 import { User, IUser } from "../../shared/models/User";
 import { EmailVerification } from "../../shared/models/EmailVerification";
-import { EmailVerificationPurpose, UserAccountStatus } from "../../shared/lib/enums";
+import { Notification } from "../../shared/models/Notification";
+import { Rider } from "../../shared/models/Rider";
+import { Shipment } from "../../shared/models/Shipment";
+import { Complaint } from "../../shared/models/Complaint";
+import { Feedback } from "../../shared/models/Feedback";
+import { ContactMessage } from "../../shared/models/ContactMessage";
+import {
+  EmailVerificationPurpose,
+  UserAccountStatus,
+  ShipmentStatus,
+} from "../../shared/lib/enums";
 import type { StringValue } from "ms";
 import { sendOTPEmail, sendPasswordResetOTPEmail, sendEmailChangeOTPEmail } from "../../config/email";
 import { generateOTP } from "../../shared/lib/utils";
@@ -696,6 +706,142 @@ export class AuthService {
 
     user.password = await bcrypt.hash(newPassword, 10);
     await user.save();
+  }
+
+  /**
+   * Permanently delete the authenticated user's account and scrub related PII.
+   * Business shipment rows are kept (anonymized) for payment/ops history.
+   */
+  async deleteAccount(userId: string, password: string): Promise<void> {
+    const user = await User.findById(userId).exec();
+    if (!user) throw new Error("User not found");
+    if (!user.password) throw new Error("Current password is incorrect");
+
+    const currentPassword = password ?? "";
+    if (!currentPassword) throw new Error("Current password is required");
+
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isPasswordValid) throw new Error("Current password is incorrect");
+
+    const activeStatuses = [
+      ShipmentStatus.PENDING,
+      ShipmentStatus.SCHEDULED,
+      ShipmentStatus.SEARCHING_RIDER,
+      ShipmentStatus.AWAITING_RIDER_RESPONSE,
+      ShipmentStatus.RIDER_ASSIGNED,
+      ShipmentStatus.PICKED_UP,
+      ShipmentStatus.IN_TRANSIT,
+    ];
+
+    const activeAsClient = await Shipment.countDocuments({
+      userId: user._id,
+      status: { $in: activeStatuses },
+    }).exec();
+    if (activeAsClient > 0) {
+      throw new Error(
+        "You have active shipments. Cancel or complete them before deleting your account."
+      );
+    }
+
+    const rider = await Rider.findOne({ userId: user._id }).exec();
+    if (rider) {
+      const activeAsRider = await Shipment.countDocuments({
+        riderID: rider._id,
+        status: { $in: activeStatuses },
+      }).exec();
+      if (activeAsRider > 0) {
+        throw new Error(
+          "You have active deliveries. Complete or be unassigned from them before deleting your account."
+        );
+      }
+    }
+
+    const anonymizedParty = {
+      fullName: "Deleted User",
+      address: "Removed",
+      phone: "N/A",
+      country: "NG",
+      state: "",
+    };
+
+    // Scrub PII on shipments owned by this client; keep financial/ops rows
+    await Shipment.updateMany(
+      { userId: user._id },
+      {
+        $set: {
+          userId: null,
+          senderDetails: anonymizedParty,
+          recipientDetails: anonymizedParty,
+          senderConfirmedByUserId: null,
+        },
+      }
+    ).exec();
+
+    await Shipment.updateMany(
+      { createdByAdminUserId: user._id },
+      { $set: { createdByAdminUserId: null } }
+    ).exec();
+
+    await Shipment.updateMany(
+      { senderConfirmedByUserId: user._id },
+      { $set: { senderConfirmedByUserId: null } }
+    ).exec();
+
+    if (rider) {
+      await Shipment.updateMany(
+        { declinedRiderIds: rider._id },
+        { $pull: { declinedRiderIds: rider._id } }
+      ).exec();
+      // Keep riderID on delivered shipments for ops history; clear elsewhere
+      await Shipment.updateMany(
+        {
+          riderID: rider._id,
+          status: { $nin: [ShipmentStatus.DELIVERED] },
+        },
+        { $set: { riderID: null } }
+      ).exec();
+    }
+
+    await Complaint.updateMany(
+      { userId: user._id },
+      {
+        $set: {
+          subject: "[Deleted account]",
+          message: "[Content removed — account deleted]",
+          phone: "N/A",
+        },
+      }
+    ).exec();
+
+    await Feedback.updateMany(
+      { clientUserId: user._id },
+      { $set: { comment: "" } }
+    ).exec();
+
+    await Notification.deleteMany({ userId: user._id }).exec();
+    await EmailVerification.deleteMany({ userId: user._id }).exec();
+
+    if (user.email) {
+      await ContactMessage.updateMany(
+        { email: user.email.toLowerCase() },
+        {
+          $set: {
+            name: "Deleted User",
+            email: "deleted@removed.local",
+            phone: "N/A",
+            message: "[Content removed — account deleted]",
+          },
+        }
+      ).exec();
+    }
+
+    if (rider) {
+      await Rider.deleteOne({ _id: rider._id }).exec();
+    }
+
+    await User.deleteOne({ _id: user._id }).exec();
+
+    logger.info("User account deleted", { userId: userId, role: user.role });
   }
 }
 

@@ -17,10 +17,10 @@ export class AuthController {
   }
 
   private clearAuthCookie(res: Response): void {
-    const cookieOptions = {
+    const cookieOptions: CookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict" as const,
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
     };
     res.clearCookie("token", cookieOptions);
   }
@@ -501,6 +501,36 @@ export class AuthController {
       });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Error changing password";
+      const status =
+        message === "User not found"
+          ? 404
+          : message === "Current password is incorrect"
+            ? 401
+            : 400;
+      res.status(status).json({ success: false, message });
+    }
+  }
+
+  async deleteAccount(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.userId;
+      if (!userId) {
+        res.status(401).json({ success: false, message: "Authentication required" });
+        return;
+      }
+      const { password } = req.body as { password?: string };
+      if (!password) {
+        res.status(400).json({ success: false, message: "password is required" });
+        return;
+      }
+      await authService.deleteAccount(userId, password);
+      this.clearAuthCookie(res);
+      res.status(200).json({
+        success: true,
+        message: "Your account has been permanently deleted",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error deleting account";
       const status =
         message === "User not found"
           ? 404

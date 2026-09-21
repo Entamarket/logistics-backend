@@ -43,6 +43,12 @@ router.post("/me/email/resend", authMiddleware, (req, res) =>
 router.post("/me/password", authMiddleware, (req, res) =>
   authController.changePassword(req as AuthRequest, res)
 );
+router.post("/me/delete", authMiddleware, (req, res) =>
+  authController.deleteAccount(req as AuthRequest, res)
+);
+router.delete("/me", authMiddleware, (req, res) =>
+  authController.deleteAccount(req as AuthRequest, res)
+);
 
 export default router;
 

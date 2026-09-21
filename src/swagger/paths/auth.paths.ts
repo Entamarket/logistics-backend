@@ -334,6 +334,34 @@ export const authPaths = {
         "400": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
       },
     },
+    delete: {
+      tags: ["Auth"],
+      summary: "Permanently delete the authenticated account (alias)",
+      description: "Same as POST /api/auth/me/delete. Prefer POST with JSON body `{ password }` for clients that struggle with DELETE bodies.",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["password"],
+              properties: {
+                password: { type: "string", example: "CurrentPass123" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Account deleted; auth cookie cleared",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiSuccessMessage" } } },
+        },
+        "400": { description: "Validation error or active shipments", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "401": { description: "Auth required or wrong password", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
   },
   "/api/auth/me/email/request": {
     post: {
@@ -478,6 +506,43 @@ export const authPaths = {
         },
         "400": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
         "401": { description: "Auth required or wrong current password", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
+  "/api/auth/me/delete": {
+    post: {
+      tags: ["Auth"],
+      summary: "Permanently delete the authenticated account",
+      description:
+        "Requires the current password. Deletes the user account and related personal data. Shipments are retained but anonymized for business/payment records. Blocked if the user has active shipments or deliveries.",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["password"],
+              properties: {
+                password: { type: "string", example: "CurrentPass123" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "Account deleted; auth cookie cleared",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiSuccessMessage" } } },
+        },
+        "400": {
+          description: "Validation error or active shipments prevent deletion",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
+        "401": {
+          description: "Auth required or wrong password",
+          content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } },
+        },
       },
     },
   },
