@@ -316,6 +316,68 @@ export const sendRiderCredentialsEmail = async (
   await sendEmail(email, subject, html, text);
 };
 
+function adminLoginUrl(): string {
+  const origins = process.env.CORS_ORIGINS?.split(",") ?? [];
+  const origin = origins.map((s) => s.trim()).find(Boolean);
+  if (origin) return `${origin.replace(/\/$/, "")}/auth/login`;
+  return "/auth/login";
+}
+
+/**
+ * Send admin account credentials when an existing admin creates another admin.
+ */
+export const sendAdminCredentialsEmail = async (
+  email: string,
+  firstName: string,
+  plainPassword: string
+): Promise<void> => {
+  const loginUrl = adminLoginUrl();
+  const subject = "Your admin account – Entamarket Logistics";
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Admin Account</title>
+    </head>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #f4f4f4; padding: 20px; border-radius: 5px;">
+        <h2 style="color: #333; text-align: center;">Your admin account has been created</h2>
+        <p>Hello ${firstName},</p>
+        <p>An administrator has created an admin account for you on Entamarket Logistics. You can log in using the details below.</p>
+        <div style="background-color: #fff; padding: 20px; border-radius: 5px; margin: 20px 0;">
+          <p style="margin: 0 0 8px 0;"><strong>Email:</strong> ${email}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Password:</strong> ${plainPassword}</p>
+          <p style="margin: 0;"><strong>Sign in:</strong> <a href="${loginUrl}">${loginUrl}</a></p>
+        </div>
+        <p>Please keep these details secure. After signing in you will have access to the admin dashboard.</p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+        <p style="font-size: 12px; color: #666; text-align: center;">
+          © ${new Date().getFullYear()} Entamarket Logistics. All rights reserved.
+        </p>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `
+    Hello ${firstName},
+
+    An administrator has created an admin account for you on Entamarket Logistics. You can log in using the details below.
+
+    Email: ${email}
+    Password: ${plainPassword}
+    Sign in: ${loginUrl}
+
+    Please keep these details secure. After signing in you will have access to the admin dashboard.
+
+    © ${new Date().getFullYear()} Entamarket Logistics. All rights reserved.
+  `;
+
+  await sendEmail(email, subject, html, text);
+};
+
 /**
  * Send OTP to confirm a requested email address change
  */

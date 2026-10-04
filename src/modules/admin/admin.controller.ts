@@ -441,4 +441,56 @@ export class AdminController {
       res.status(status).json({ success: false, message });
     }
   }
+
+  async listAdmins(_req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const data = await adminService.listAdmins();
+      res.status(200).json({ success: true, data });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error fetching admins";
+      res.status(500).json({ success: false, message });
+    }
+  }
+
+  async createAdmin(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { firstName, lastName, email, phone, password } = req.body as {
+        firstName?: string;
+        lastName?: string;
+        email?: string;
+        phone?: string;
+        password?: string;
+      };
+      if (!firstName || !lastName || !email || !password) {
+        res.status(400).json({
+          success: false,
+          message: "firstName, lastName, email, and password are required",
+        });
+        return;
+      }
+      if (typeof password !== "string" || password.length < 8) {
+        res.status(400).json({
+          success: false,
+          message: "Password must be at least 8 characters",
+        });
+        return;
+      }
+      const data = await adminService.createAdmin({
+        firstName,
+        lastName,
+        email,
+        password,
+        phone,
+      });
+      res.status(201).json({
+        success: true,
+        message: "Admin created successfully",
+        data,
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Error creating admin";
+      const code = message.toLowerCase().includes("already exists") ? 400 : 500;
+      res.status(code).json({ success: false, message });
+    }
+  }
 }

@@ -35,4 +35,7 @@ router.get("/clients/:id/activity", (req, res) => adminController.getClientActiv
 router.patch("/clients/:id/status", (req, res) => adminController.updateClientStatus(req as AuthRequest, res));
 router.get("/clients/:id", (req, res) => adminController.getClient(req as AuthRequest, res));
 
+router.get("/admins", (req, res) => adminController.listAdmins(req as AuthRequest, res));
+router.post("/admins", (req, res) => adminController.createAdmin(req as AuthRequest, res));
+
 export default router;

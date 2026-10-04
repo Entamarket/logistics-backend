@@ -300,6 +300,20 @@ export const swaggerComponents = {
         shipmentCount: { type: "integer", example: 12 },
       },
     },
+    AdminUser: {
+      type: "object",
+      properties: {
+        id: { type: "string", example: "664a1b2c3d4e5f6789012340" },
+        firstName: { type: "string", example: "Ada" },
+        lastName: { type: "string", example: "Okafor" },
+        email: { type: "string", example: "ada.admin@example.com" },
+        phone: { type: "string", example: "+2348012345678" },
+        role: { type: "string", enum: ["admin"], example: "admin" },
+        status: { type: "string", enum: ["active", "suspended", "blocked"], example: "active" },
+        isEmailVerified: { type: "boolean", example: true },
+        createdAt: { type: "string", format: "date-time" },
+      },
+    },
     AdminClientStats: {
       type: "object",
       properties: {

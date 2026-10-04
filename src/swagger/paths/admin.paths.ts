@@ -384,6 +384,72 @@ export const adminPaths = {
       },
     },
   },
+  "/api/admin/admins": {
+    get: {
+      tags: ["Admin"],
+      summary: "List admin users",
+      security: cookieSecurity,
+      responses: {
+        "200": {
+          description: "Admin user list",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  data: { type: "array", items: { $ref: "#/components/schemas/AdminUser" } },
+                },
+              },
+            },
+          },
+        },
+        "403": { description: "Admin access required", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+    post: {
+      tags: ["Admin"],
+      summary: "Create another admin user",
+      security: cookieSecurity,
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["firstName", "lastName", "email", "password"],
+              properties: {
+                firstName: { type: "string", example: "Ada" },
+                lastName: { type: "string", example: "Okafor" },
+                email: { type: "string", example: "ada.admin@example.com" },
+                phone: { type: "string", example: "+2348012345678" },
+                password: { type: "string", minLength: 8, example: "AdminPass123" },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        "201": {
+          description: "Admin created",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  success: { type: "boolean", example: true },
+                  message: { type: "string", example: "Admin created successfully" },
+                  data: { $ref: "#/components/schemas/AdminUser" },
+                },
+              },
+            },
+          },
+        },
+        "400": { description: "Validation or duplicate email/phone", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+        "403": { description: "Admin access required", content: { "application/json": { schema: { $ref: "#/components/schemas/ApiError" } } } },
+      },
+    },
+  },
   "/api/admin/clients": {
     get: {
       tags: ["Admin"],

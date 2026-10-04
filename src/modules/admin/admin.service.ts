@@ -1,3 +1,4 @@
+import bcrypt from "bcrypt";
 import { Types } from "mongoose";
 import { Shipment } from "../../shared/models/Shipment";
 import { Rider, IRider } from "../../shared/models/Rider";
@@ -7,6 +8,8 @@ import { RiderStatus, ShipmentStatus, UserAccountStatus } from "../../shared/lib
 import { RiderService } from "../rider/rider.service";
 import { ShipmentService, CreateShipmentBody } from "../shipment/shipment.service";
 import { hasDeliveryProof, getDeliveryProofSignedUrl } from "../../shared/lib/s3.service";
+import { sendAdminCredentialsEmail } from "../../config/email";
+import { logger } from "../../shared/lib/logger";
 
 export interface MonthlyRevenueDto {
   yearMonth: string;
@@ -54,6 +57,26 @@ export interface FinancialReportsDto {
 export interface GetFinancialReportsOptions {
   year?: number;
   monthCount?: number;
+}
+
+export interface CreateAdminBody {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phone?: string;
+}
+
+export interface AdminUserDto {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  role: "admin";
+  status: string;
+  isEmailVerified: boolean;
+  createdAt: string;
 }
 
 export interface MonthlyFinancialDeliveryDto {
@@ -1096,6 +1119,97 @@ export class AdminService {
       totalCompleted: orders.length,
       monthly,
       orders,
+    };
+  }
+
+  async listAdmins(): Promise<AdminUserDto[]> {
+    const users = await User.find({ role: "admin" })
+      .select("firstName lastName email phone status isEmailVerified createdAt")
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    return users.map((user) => this.mapAdminUser(user));
+  }
+
+  async createAdmin(data: CreateAdminBody): Promise<AdminUserDto> {
+    const firstName = data.firstName.trim();
+    const lastName = data.lastName.trim();
+    const email = data.email.trim().toLowerCase();
+    const phone = data.phone?.trim() ? data.phone.trim().replace(/\s+/g, "") : undefined;
+
+    if (!firstName || !lastName || !email || !data.password) {
+      throw new Error("firstName, lastName, email, and password are required");
+    }
+    if (data.password.length < 8) {
+      throw new Error("Password must be at least 8 characters");
+    }
+
+    const existingUser = await User.findOne({ email }).exec();
+    if (existingUser) {
+      throw new Error("User with this email already exists");
+    }
+
+    if (phone) {
+      const existingPhone = await User.findOne({ phone }).exec();
+      if (existingPhone) {
+        throw new Error("User with this phone number already exists");
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(data.password, 10);
+    try {
+      const user = await User.create({
+        firstName,
+        lastName,
+        email,
+        ...(phone ? { phone } : {}),
+        password: hashedPassword,
+        role: "admin",
+        status: UserAccountStatus.ACTIVE,
+        isEmailVerified: true,
+      });
+
+      sendAdminCredentialsEmail(user.email, user.firstName, data.password).catch((error) => {
+        logger.error("Failed to send admin credentials email", {
+          message: error instanceof Error ? error.message : String(error),
+          email: user.email,
+        });
+      });
+
+      return this.mapAdminUser(user);
+    } catch (error: unknown) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as { code?: number }).code
+          : undefined;
+      if (code === 11000) {
+        throw new Error("User with this email or phone number already exists");
+      }
+      throw error;
+    }
+  }
+
+  private mapAdminUser(user: {
+    _id: Types.ObjectId;
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+    status?: string;
+    isEmailVerified: boolean;
+    createdAt: Date;
+  }): AdminUserDto {
+    return {
+      id: user._id.toString(),
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      phone: user.phone ?? "",
+      role: "admin",
+      status: user.status || UserAccountStatus.ACTIVE,
+      isEmailVerified: user.isEmailVerified,
+      createdAt: new Date(user.createdAt).toISOString(),
     };
   }
 }
